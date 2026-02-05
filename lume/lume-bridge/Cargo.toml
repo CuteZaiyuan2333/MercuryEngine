@@ -1,0 +1,9 @@
+[package]
+name = "lume-bridge"
+version = "0.1.0"
+edition = "2021"
+description = "MercuryEngine integration for Lume (no Bevy/WGPU dependency)"
+
+[dependencies]
+lume-rhi = { path = "../lume-rhi" }
+lume-renderer = { path = "../lume-renderer" }

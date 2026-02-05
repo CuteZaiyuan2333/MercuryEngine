@@ -1,0 +1,32 @@
+[package]
+name = "lume-examples"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+# Enable for ubo_triangle_window: cargo run --bin ubo_triangle_window --features window
+window = ["lume-rhi/window"]
+
+[[bin]]
+name = "minimal_vulkan"
+path = "src/bin/minimal_vulkan.rs"
+
+[[bin]]
+name = "triangle_graphics"
+path = "src/bin/triangle_graphics.rs"
+
+[[bin]]
+name = "ubo_triangle"
+path = "src/bin/ubo_triangle.rs"
+
+[[bin]]
+name = "ubo_triangle_window"
+path = "src/bin/ubo_triangle_window.rs"
+
+[dependencies]
+bytemuck = "1.14"
+lume-rhi = { path = "../lume-rhi", features = ["vulkan"] }
+naga = { version = "0.19", features = ["wgsl-in", "spv-out"] }
+raw-window-handle = "0.6"
+winit = { version = "0.30", features = ["rwh_06"] }

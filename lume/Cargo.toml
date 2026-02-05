@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = [
+    "lume-rhi",
+    "lume-renderer",
+    "lume-tools",
+    "lume-examples",
+    "lume-bridge",
+]
+
+[workspace.dependencies]
+# Common dependencies can be added here later
+log = "0.4"
+env_logger = "0.11"

@@ -1,0 +1,14 @@
+[package]
+name = "lume-rhi"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["vulkan"]
+vulkan = ["ash"]
+window = ["vulkan", "raw-window-handle"]
+
+[dependencies]
+bitflags = "2.4"
+ash = { version = "0.38", optional = true }
+raw-window-handle = { version = "0.6", optional = true }
