@@ -1,10 +1,9 @@
-//! Minimal runnable example: Lume + Vulkan only. No Bevy, no WGPU.
-//! Creates a Vulkan device, buffer, fence, submits an empty command buffer, and exits.
-
-use lume_rhi::Device;
+//! Minimal runnable example: Lume RHI only. No direct Vulkan/Metal API calls.
+//! Creates a device (backend-agnostic), buffer, fence, submits an empty command buffer, and exits.
 
 fn main() {
-    let device = lume_rhi::VulkanDevice::new().expect("VulkanDevice::new");
+    let device = lume_rhi::create_device(lume_rhi::DeviceCreateParams::default())
+        .expect("create_device");
     let _buffer = device.create_buffer(&lume_rhi::BufferDescriptor {
         label: Some("minimal"),
         size: 256,
@@ -17,5 +16,5 @@ fn main() {
     let cmd = encoder.finish().expect("finish");
     device.submit(vec![cmd]).expect("submit");
     device.wait_idle().expect("wait_idle");
-    println!("Lume + Vulkan OK");
+    println!("Lume RHI OK");
 }

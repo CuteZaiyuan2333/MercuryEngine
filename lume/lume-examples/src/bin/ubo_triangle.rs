@@ -3,14 +3,15 @@
 
 use lume_rhi::{
     BufferUsage, ColorAttachment, ColorTargetState, DescriptorSetLayoutBinding, DescriptorType,
-    Device, GraphicsPipelineDescriptor, LoadOp, PrimitiveTopology, RenderPassDescriptor,
+    GraphicsPipelineDescriptor, LoadOp, PrimitiveTopology, RenderPassDescriptor,
     ShaderStage, ShaderStages, StoreOp, TextureDescriptor, TextureDimension, TextureFormat,
     TextureUsage, VertexAttribute, VertexBinding, VertexInputDescriptor, VertexInputRate,
     VertexFormat,
 };
 
 fn main() {
-    let device = lume_rhi::VulkanDevice::new().expect("VulkanDevice::new");
+    let device = lume_rhi::create_device(lume_rhi::DeviceCreateParams::default())
+        .expect("create_device");
 
     let render_target = device.create_texture(&TextureDescriptor {
         label: Some("rt"),

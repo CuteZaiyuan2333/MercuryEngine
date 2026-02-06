@@ -3,14 +3,15 @@
 //! Note: Requires valid SPIR-V shaders for full rendering. This demonstrates the API flow.
 
 use lume_rhi::{
-    BufferUsage, ColorAttachment, ColorTargetState, Device, GraphicsPipelineDescriptor, LoadOp,
+    BufferUsage, ColorAttachment, ColorTargetState, GraphicsPipelineDescriptor, LoadOp,
     PrimitiveTopology, RenderPassDescriptor, ShaderStage, StoreOp, TextureDescriptor, TextureDimension,
     TextureFormat, TextureUsage, VertexAttribute, VertexBinding, VertexFormat, VertexInputDescriptor,
     VertexInputRate,
 };
 
 fn main() {
-    let device = lume_rhi::VulkanDevice::new().expect("VulkanDevice::new");
+    let device = lume_rhi::create_device(lume_rhi::DeviceCreateParams::default())
+        .expect("create_device");
 
     let render_target = device.create_texture(&TextureDescriptor {
         label: Some("rt"),

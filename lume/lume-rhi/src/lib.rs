@@ -3,6 +3,7 @@
 
 use std::any::Any;
 use std::fmt::Debug;
+use std::sync::Arc;
 
 /// Unique identifier for a GPU resource.
 pub type ResourceId = u64;
@@ -734,8 +735,112 @@ pub trait Swapchain: Send + Sync + Debug {
     fn format(&self) -> TextureFormat;
 }
 
+// ---------------------------------------------------------------------------
+// Backend-agnostic device creation
+// ---------------------------------------------------------------------------
+
+/// Graphics backend selector. Use [`Backend::Default`] for backend-agnostic code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Backend {
+    /// Use the default backend for the platform (currently Vulkan on all supported platforms).
+    #[default]
+    Default,
+    /// Use Vulkan. Explicit choice when needed.
+    Vulkan,
+    // Future: Metal,
+}
+
+/// Parameters for creating an RHI device. Use [`create_device`] with this to get a backend-agnostic [`Device`].
+pub struct DeviceCreateParams<'a> {
+    pub backend: Backend,
+    /// When provided (and the `window` feature is enabled), the device will support swapchain/presentation.
+    #[cfg(feature = "window")]
+    pub surface: Option<&'a dyn raw_window_handle::HasWindowHandle>,
+    #[cfg(not(feature = "window"))]
+    _marker: std::marker::PhantomData<&'a ()>,
+}
+
+impl std::fmt::Debug for DeviceCreateParams<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        #[cfg(feature = "window")]
+        return f
+            .debug_struct("DeviceCreateParams")
+            .field("backend", &self.backend)
+            .field("surface", &self.surface.as_ref().map(|_| "Some(_)"))
+            .finish();
+        #[cfg(not(feature = "window"))]
+        return f
+            .debug_struct("DeviceCreateParams")
+            .field("backend", &self.backend)
+            .finish();
+    }
+}
+
+impl Default for DeviceCreateParams<'_> {
+    fn default() -> Self {
+        Self {
+            backend: Backend::Default,
+            #[cfg(feature = "window")]
+            surface: None,
+            #[cfg(not(feature = "window"))]
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+/// Create an RHI device. When `params.surface` is `Some` (and the `window` feature is enabled),
+/// the device supports swapchain/presentation. Otherwise creates a headless device.
+#[cfg(not(feature = "window"))]
+pub fn create_device(params: DeviceCreateParams<'_>) -> Result<Arc<dyn Device>, String> {
+    create_device_impl_headless(params)
+}
+
+/// Create an RHI device. When `params.surface` is `Some`, the device supports swapchain/presentation.
+#[cfg(feature = "window")]
+pub fn create_device(params: DeviceCreateParams<'_>) -> Result<Arc<dyn Device>, String> {
+    create_device_impl_with_surface(params.backend, params.surface)
+}
+
+/// Used only when `window` feature is disabled (headless path).
+#[cfg(all(feature = "vulkan", not(feature = "window")))]
+fn create_device_impl_headless(params: DeviceCreateParams<'_>) -> Result<Arc<dyn Device>, String> {
+    #[allow(unreachable_patterns)]
+    match params.backend {
+        Backend::Default | Backend::Vulkan => {}
+        _ => return Err("Only Vulkan backend is implemented".to_string()),
+    }
+    let device: Arc<dyn Device> = crate::vulkan::VulkanDevice::new()?;
+    Ok(device)
+}
+
+#[cfg(not(feature = "vulkan"))]
+fn create_device_impl_headless(params: DeviceCreateParams<'_>) -> Result<Arc<dyn Device>, String> {
+    let _ = params;
+    Err("No RHI backend enabled (enable feature 'vulkan')".to_string())
+}
+
+#[cfg(all(feature = "vulkan", feature = "window"))]
+fn create_device_impl_with_surface(
+    backend: Backend,
+    surface: Option<&dyn raw_window_handle::HasWindowHandle>,
+) -> Result<Arc<dyn Device>, String> {
+    #[allow(unreachable_patterns)]
+    match backend {
+        Backend::Default | Backend::Vulkan => {}
+        _ => return Err("Only Vulkan backend is implemented".to_string()),
+    }
+    let device: Arc<dyn Device> = if let Some(win) = surface {
+        crate::vulkan::VulkanDevice::new_with_surface(win)?
+    } else {
+        crate::vulkan::VulkanDevice::new()?
+    };
+    Ok(device)
+}
+
 #[cfg(feature = "vulkan")]
 pub mod vulkan;
 
+/// Vulkan backend. Re-exported for advanced use (e.g. Vulkan-specific extensions).
+/// Prefer [`create_device`] for backend-agnostic code.
 #[cfg(feature = "vulkan")]
 pub use vulkan::VulkanDevice;

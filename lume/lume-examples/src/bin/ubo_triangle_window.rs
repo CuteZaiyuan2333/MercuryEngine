@@ -36,8 +36,8 @@ struct App {
     frame_fences: Option<Vec<Box<dyn lume_rhi::Fence>>>,
     /// Keep submitted command buffers alive until the next wait on that image (freeing early causes ERROR_DEVICE_LOST).
     pending_command_buffers: Option<Vec<Option<Box<dyn lume_rhi::CommandBuffer>>>>,
-    /// Defer Vulkan init to RedrawRequested (avoids 0xC000041d when creating surface inside Resized on Windows).
-    pending_vulkan_init: bool,
+    /// Defer device/swapchain init to RedrawRequested (avoids 0xC000041d when creating surface inside Resized on Windows).
+    pending_device_init: bool,
     /// Skip N redraws after init so the window/surface is ready (avoids ERROR_DEVICE_LOST on first submit).
     skip_next_render: u32,
 }
@@ -58,7 +58,7 @@ impl App {
             sem_render: None,
             frame_fences: None,
             pending_command_buffers: None,
-            pending_vulkan_init: false,
+            pending_device_init: false,
             skip_next_render: 0,
         }
     }
@@ -147,13 +147,13 @@ impl App {
 
 #[cfg(feature = "window")]
 impl App {
-    /// Create Vulkan device and swapchain after window is ready (avoids 0xC000041d on Windows).
+    /// Create RHI device and swapchain after window is ready (avoids 0xC000041d on Windows).
     /// Only runs when window has a valid size (after first Resized); avoids creating surface too early.
-    fn init_vulkan(&mut self) {
+    fn init_device(&mut self) {
         if self.device.is_some() {
             return;
         }
-        let window = self.window.as_ref().expect("window must exist before init_vulkan");
+        let window = self.window.as_ref().expect("window must exist before init_device");
         let size = window.inner_size();
         let (w, h) = (size.width, size.height);
         if w == 0 || h == 0 {
@@ -161,7 +161,10 @@ impl App {
         }
         let width = size.width.max(1);
         let height = size.height.max(1);
-        let device = lume_rhi::VulkanDevice::new_with_surface(window).expect("VulkanDevice::new_with_surface");
+        let device = lume_rhi::create_device(lume_rhi::DeviceCreateParams {
+            surface: Some(window),
+            ..Default::default()
+        }).expect("create_device");
         let swapchain = device.create_swapchain((width, height), None).expect("create_swapchain");
         let swapchain_format = swapchain.format();
 
@@ -285,7 +288,7 @@ impl ApplicationHandler for App {
     ) {
         match event {
             WindowEvent::CloseRequested => {
-                // Tear down Vulkan (wait idle, then drop swapchain/surface/device) before window closes
+                // Tear down device (wait idle, then drop swapchain/surface/device) before window closes
                 // to avoid STATUS_ACCESS_VIOLATION when driver touches surface after HWND is gone.
                 if let Some(ref device) = self.device {
                     let _ = device.wait_idle();
@@ -324,16 +327,16 @@ impl ApplicationHandler for App {
                     }
                 } else {
                     // Defer init to RedrawRequested to avoid 0xC000041d (create surface outside Resized callback).
-                    self.pending_vulkan_init = true;
+                    self.pending_device_init = true;
                 }
                 if let Some(ref w) = self.window {
                     w.request_redraw();
                 }
             }
             WindowEvent::RedrawRequested => {
-                if self.pending_vulkan_init {
-                    self.pending_vulkan_init = false;
-                    self.init_vulkan();
+                if self.pending_device_init {
+                    self.pending_device_init = false;
+                    self.init_device();
                 }
                 if self.device.is_some() {
                     if self.skip_next_render > 0 {

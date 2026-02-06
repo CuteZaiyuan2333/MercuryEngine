@@ -13,7 +13,7 @@ pub struct LumePlugin {
 }
 
 impl LumePlugin {
-    /// Create the plugin with a device (e.g. Vulkan from lume_rhi::VulkanDevice::new()).
+    /// Create the plugin with a device (e.g. from `lume_rhi::create_device(DeviceCreateParams::default())` or with `surface: Some(window)` for swapchain).
     pub fn new(device: Arc<dyn Device>) -> Self {
         Self {
             renderer: Renderer::new(device),

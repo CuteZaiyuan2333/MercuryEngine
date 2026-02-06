@@ -400,7 +400,7 @@ impl VulkanDevice {
     #[cfg(feature = "window")]
     /// Create a Vulkan device with a window surface for swapchain/presentation.
     pub fn new_with_surface(
-        window: &impl raw_window_handle::HasWindowHandle,
+        window: &dyn raw_window_handle::HasWindowHandle,
     ) -> Result<Arc<Self>, String> {
         use ash::khr::surface::Instance as SurfaceInstance;
         use ash::khr::swapchain::Device as SwapchainDevice;
