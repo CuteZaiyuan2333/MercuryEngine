@@ -19,14 +19,15 @@ fn main() {
         usage: TextureUsage::RENDER_ATTACHMENT | TextureUsage::COPY_SRC,
         dimension: TextureDimension::D2,
         mip_level_count: 1,
-    });
+    }).expect("create_texture");
 
     let vertex_buffer = device.create_buffer(&lume_rhi::BufferDescriptor {
         label: Some("vertices"),
         size: 9 * 4,
         usage: BufferUsage::VERTEX,
         memory: lume_rhi::BufferMemoryPreference::HostVisible,
-    });
+    }).expect("create_buffer");
+
 
     let pipeline_desc = GraphicsPipelineDescriptor {
         label: Some("triangle"),
@@ -56,13 +57,15 @@ fn main() {
         color_targets: vec![ColorTargetState {
             format: TextureFormat::Rgba8Unorm,
             blend: None,
+            load_op: None,
+            store_op: None,
         }],
         depth_stencil: None,
         layout_bindings: vec![],
     };
 
-    let pipeline = device.create_graphics_pipeline(&pipeline_desc);
-    let mut encoder = device.create_command_encoder();
+    let pipeline = device.create_graphics_pipeline(&pipeline_desc).expect("create_graphics_pipeline");
+    let mut encoder = device.create_command_encoder().expect("create_command_encoder");
 
     let mut pass = encoder.begin_render_pass(RenderPassDescriptor {
         label: Some("triangle_pass"),
@@ -76,17 +79,18 @@ fn main() {
                 b: 0.4,
                 a: 1.0,
             }),
+            initial_layout: None,
         }],
         depth_stencil_attachment: None,
-    });
+    }).expect("begin_render_pass");
 
     pass.set_pipeline(pipeline.as_ref());
     pass.set_vertex_buffer(0, vertex_buffer.as_ref(), 0);
     pass.draw(3, 1, 0, 0);
     pass.end();
 
-    let cmd = encoder.finish();
-    device.submit(vec![cmd]);
+    let cmd = encoder.finish().expect("finish");
+    device.submit(vec![cmd]).expect("submit");
     device.wait_idle().expect("wait_idle");
 
     println!("Triangle graphics API flow OK");

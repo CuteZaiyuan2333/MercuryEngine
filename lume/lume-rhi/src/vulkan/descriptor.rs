@@ -1,10 +1,27 @@
 //! Vulkan Descriptor Set Layout, Pool, and Set.
 
 use crate::{
-    Buffer, DescriptorPool, DescriptorSet, DescriptorSetLayout, DescriptorSetLayoutBinding,
-    DescriptorType, Sampler, ShaderStages, Texture,
+    Buffer, DescriptorPool, DescriptorPoolDescriptor, DescriptorSet, DescriptorSetLayout,
+    DescriptorSetLayoutBinding, DescriptorType, Sampler, ShaderStages, Texture,
 };
 use ash::vk;
+
+/// Returns the VkImageView for a texture, supporting both VulkanTexture and VulkanSwapchainImage
+/// (when feature "window" is enabled), so that swapchain images can be bound as sampled textures
+/// e.g. for post-process or temporal accumulation.
+fn texture_view_for_descriptor(texture: &dyn Texture) -> Result<vk::ImageView, String> {
+    if let Some(t) = texture.as_any().downcast_ref::<super::texture::VulkanTexture>() {
+        return Ok(t.view);
+    }
+    #[cfg(feature = "window")]
+    if let Some(s) = texture.as_any().downcast_ref::<super::swapchain::VulkanSwapchainImage>() {
+        return Ok(s.view());
+    }
+    #[cfg(not(feature = "window"))]
+    return Err("Texture must be VulkanTexture; enable 'window' feature to bind swapchain images".to_string());
+    #[cfg(feature = "window")]
+    Err("Texture must be VulkanTexture or VulkanSwapchainImage".to_string())
+}
 
 pub struct VulkanDescriptorSetLayout {
     pub device: ash::Device,
@@ -80,26 +97,54 @@ pub fn create_descriptor_set_layout(
     })
 }
 
+const DEFAULT_POOL_MULTIPLIER: u32 = 4;
+
 pub fn create_descriptor_pool(device: &ash::Device, max_sets: u32) -> Result<VulkanDescriptorPool, String> {
-    let pool_sizes = [
-        vk::DescriptorPoolSize::default()
-            .ty(vk::DescriptorType::UNIFORM_BUFFER)
-            .descriptor_count(max_sets * 4),
-        vk::DescriptorPoolSize::default()
-            .ty(vk::DescriptorType::STORAGE_BUFFER)
-            .descriptor_count(max_sets * 4),
-        vk::DescriptorPoolSize::default()
-            .ty(vk::DescriptorType::STORAGE_IMAGE)
-            .descriptor_count(max_sets * 4),
-        vk::DescriptorPoolSize::default()
-            .ty(vk::DescriptorType::SAMPLED_IMAGE)
-            .descriptor_count(max_sets * 4),
-        vk::DescriptorPoolSize::default()
-            .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .descriptor_count(max_sets * 4),
+    create_descriptor_pool_from_descriptor(device, &DescriptorPoolDescriptor {
+        max_sets,
+        pool_sizes: Vec::new(),
+    })
+}
+
+pub fn create_descriptor_pool_from_descriptor(
+    device: &ash::Device,
+    desc: &DescriptorPoolDescriptor,
+) -> Result<VulkanDescriptorPool, String> {
+    let default_per_type = desc.max_sets * DEFAULT_POOL_MULTIPLIER;
+    let types_and_defaults: [(DescriptorType, u32); 5] = [
+        (DescriptorType::UniformBuffer, default_per_type),
+        (DescriptorType::StorageBuffer, default_per_type),
+        (DescriptorType::StorageImage, default_per_type),
+        (DescriptorType::SampledImage, default_per_type),
+        (DescriptorType::CombinedImageSampler, default_per_type),
     ];
+    let pool_sizes: Vec<vk::DescriptorPoolSize> = if desc.pool_sizes.is_empty() {
+        types_and_defaults
+            .iter()
+            .map(|(ty, count)| {
+                vk::DescriptorPoolSize::default()
+                    .ty(descriptor_type_to_vk(*ty))
+                    .descriptor_count(*count)
+            })
+            .collect()
+    } else {
+        types_and_defaults
+            .iter()
+            .map(|(ty, default_count)| {
+                let count = desc
+                    .pool_sizes
+                    .iter()
+                    .find(|(t, _)| t == ty)
+                    .map(|(_, c)| *c)
+                    .unwrap_or(*default_count);
+                vk::DescriptorPoolSize::default()
+                    .ty(descriptor_type_to_vk(*ty))
+                    .descriptor_count(count)
+            })
+            .collect()
+    };
     let create_info = vk::DescriptorPoolCreateInfo::default()
-        .max_sets(max_sets)
+        .max_sets(desc.max_sets)
         .pool_sizes(&pool_sizes);
     let pool = unsafe {
         device
@@ -109,7 +154,7 @@ pub fn create_descriptor_pool(device: &ash::Device, max_sets: u32) -> Result<Vul
     Ok(VulkanDescriptorPool {
         device: device.clone(),
         pool,
-        max_sets,
+        max_sets: desc.max_sets,
     })
 }
 
@@ -198,15 +243,34 @@ impl VulkanDescriptorSet {
 }
 
 impl DescriptorSet for VulkanDescriptorSet {
-    fn write_buffer(&mut self, binding: u32, buffer: &dyn Buffer, offset: u64, size: u64) {
+    fn write_buffer(&mut self, binding: u32, buffer: &dyn Buffer, offset: u64, size: u64) -> Result<(), String> {
+        self.write_buffer_at(binding, 0, buffer, offset, size)
+    }
+
+    fn write_texture(&mut self, binding: u32, texture: &dyn Texture) -> Result<(), String> {
+        self.write_texture_at(binding, 0, texture)
+    }
+
+    fn write_sampled_image(&mut self, binding: u32, texture: &dyn Texture, sampler: &dyn Sampler) -> Result<(), String> {
+        self.write_sampled_image_at(binding, 0, texture, sampler)
+    }
+
+    fn write_buffer_at(
+        &mut self,
+        binding: u32,
+        array_element: u32,
+        buffer: &dyn Buffer,
+        offset: u64,
+        size: u64,
+    ) -> Result<(), String> {
         let descriptor_type = self
             .descriptor_type_for_binding(binding)
-            .expect("write_buffer: binding not found in layout");
+            .ok_or("write_buffer_at: binding not found in layout")?;
         let vk_ty = descriptor_type_to_vk(descriptor_type);
         let vk_buf = buffer
             .as_any()
             .downcast_ref::<super::buffer::VulkanBuffer>()
-            .expect("Buffer must be VulkanBuffer");
+            .ok_or("Buffer must be VulkanBuffer")?;
         let buffer_info = vk::DescriptorBufferInfo::default()
             .buffer(vk_buf.buffer)
             .offset(offset)
@@ -214,63 +278,66 @@ impl DescriptorSet for VulkanDescriptorSet {
         let write = vk::WriteDescriptorSet::default()
             .dst_set(self.set)
             .dst_binding(binding)
-            .dst_array_element(0)
+            .dst_array_element(array_element)
             .descriptor_type(vk_ty)
             .buffer_info(std::slice::from_ref(&buffer_info));
         unsafe {
             self.device.update_descriptor_sets(&[write], &[]);
         }
+        Ok(())
     }
 
-    fn write_texture(&mut self, binding: u32, texture: &dyn Texture) {
+    fn write_texture_at(&mut self, binding: u32, array_element: u32, texture: &dyn Texture) -> Result<(), String> {
         let descriptor_type = self
             .descriptor_type_for_binding(binding)
-            .expect("write_texture: binding not found in layout");
+            .ok_or("write_texture_at: binding not found in layout")?;
         let vk_ty = descriptor_type_to_vk(descriptor_type);
-        let vk_tex = texture
-            .as_any()
-            .downcast_ref::<super::texture::VulkanTexture>()
-            .expect("Texture must be VulkanTexture");
+        let image_view = texture_view_for_descriptor(texture)?;
         let image_info = vk::DescriptorImageInfo::default()
-            .image_view(vk_tex.view)
+            .image_view(image_view)
             .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
         let write = vk::WriteDescriptorSet::default()
             .dst_set(self.set)
             .dst_binding(binding)
-            .dst_array_element(0)
+            .dst_array_element(array_element)
             .descriptor_type(vk_ty)
             .image_info(std::slice::from_ref(&image_info));
         unsafe {
             self.device.update_descriptor_sets(&[write], &[]);
         }
+        Ok(())
     }
 
-    fn write_sampled_image(&mut self, binding: u32, texture: &dyn Texture, sampler: &dyn Sampler) {
+    fn write_sampled_image_at(
+        &mut self,
+        binding: u32,
+        array_element: u32,
+        texture: &dyn Texture,
+        sampler: &dyn Sampler,
+    ) -> Result<(), String> {
         let descriptor_type = self
             .descriptor_type_for_binding(binding)
-            .expect("write_sampled_image: binding not found in layout");
+            .ok_or("write_sampled_image_at: binding not found in layout")?;
         let vk_ty = descriptor_type_to_vk(descriptor_type);
-        let vk_tex = texture
-            .as_any()
-            .downcast_ref::<super::texture::VulkanTexture>()
-            .expect("Texture must be VulkanTexture");
+        let image_view = texture_view_for_descriptor(texture)?;
         let vk_sampler = sampler
             .as_any()
             .downcast_ref::<super::sampler::VulkanSampler>()
-            .expect("Sampler must be VulkanSampler");
+            .ok_or("Sampler must be VulkanSampler")?;
         let image_info = vk::DescriptorImageInfo::default()
-            .image_view(vk_tex.view)
+            .image_view(image_view)
             .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
             .sampler(vk_sampler.sampler);
         let write = vk::WriteDescriptorSet::default()
             .dst_set(self.set)
             .dst_binding(binding)
-            .dst_array_element(0)
+            .dst_array_element(array_element)
             .descriptor_type(vk_ty)
             .image_info(std::slice::from_ref(&image_info));
         unsafe {
             self.device.update_descriptor_sets(&[write], &[]);
         }
+        Ok(())
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

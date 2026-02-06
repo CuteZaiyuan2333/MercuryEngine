@@ -79,12 +79,16 @@ impl VirtualGeometryManager {
             return Ok(());
         }
         let size = (commands.len() * std::mem::size_of::<DrawIndexedIndirectCommand>()) as u64;
-        let buf = self.device.create_buffer(&BufferDescriptor {
-            label: Some("vg_indirect"),
-            size,
-            usage: BufferUsage::INDIRECT,
-            memory: lume_rhi::BufferMemoryPreference::HostVisible,
-        });
+        // Reuse existing buffer when size is sufficient to avoid per-frame allocation.
+        let buf = match self.indirect_buffer.as_ref() {
+            Some(b) if b.size() >= size => self.indirect_buffer.take().unwrap(),
+            _ => self.device.create_buffer(&BufferDescriptor {
+                label: Some("vg_indirect"),
+                size,
+                usage: BufferUsage::INDIRECT,
+                memory: lume_rhi::BufferMemoryPreference::HostVisible,
+            })?,
+        };
         let bytes = unsafe {
             std::slice::from_raw_parts(
                 commands.as_ptr() as *const u8,

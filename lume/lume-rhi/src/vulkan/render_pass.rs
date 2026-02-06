@@ -89,9 +89,19 @@ pub fn create_vk_render_pass(
             .color_attachments(&color_refs)
     };
 
+    // Wait for any prior layout transition or acquire before the first subpass uses the attachment.
+    let dependency = vk::SubpassDependency::default()
+        .src_subpass(vk::SUBPASS_EXTERNAL)
+        .dst_subpass(0)
+        .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+        .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+        .src_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
+        .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE);
+
     let create_info = vk::RenderPassCreateInfo::default()
         .attachments(&attachments)
-        .subpasses(std::slice::from_ref(&subpass));
+        .subpasses(std::slice::from_ref(&subpass))
+        .dependencies(std::slice::from_ref(&dependency));
 
     unsafe {
         device
@@ -129,10 +139,13 @@ fn store_op_to_vk(op: StoreOp) -> vk::AttachmentStoreOp {
 }
 
 /// Vulkan render pass recording - implements RenderPass trait.
+/// Render pass and framebuffer are cached on the device and are not destroyed in end().
 pub struct VulkanRenderPassRecorder {
     pub(crate) device: Arc<ash::Device>,
     pub(crate) command_buffer: vk::CommandBuffer,
+    #[allow(dead_code)] // kept for recorder lifetime; not destroyed in end (cached on device)
     pub(crate) render_pass: vk::RenderPass,
+    #[allow(dead_code)]
     pub(crate) framebuffer: vk::Framebuffer,
     pub(crate) extent: vk::Extent2D,
     pub(crate) pipeline_bound: Option<vk::Pipeline>,
@@ -306,9 +319,8 @@ impl crate::RenderPass for VulkanRenderPassRecorder {
     fn end(self: Box<Self>) {
         unsafe {
             self.device.cmd_end_render_pass(self.command_buffer);
-            self.device.destroy_framebuffer(self.framebuffer, None);
-            self.device.destroy_render_pass(self.render_pass, None);
         }
+        // Render pass and framebuffer are cached on the device; do not destroy them here.
     }
 }
 

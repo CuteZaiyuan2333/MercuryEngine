@@ -24,11 +24,11 @@ impl std::fmt::Debug for VulkanQueue {
 impl Queue for VulkanQueue {
     fn submit(
         &self,
-        command_buffers: Vec<Box<dyn CommandBuffer>>,
+        command_buffers: &[&dyn CommandBuffer],
         wait_semaphores: &[&dyn Semaphore],
         signal_semaphores: &[&dyn Semaphore],
         signal_fence: Option<&dyn Fence>,
-    ) {
+    ) -> Result<(), String> {
         let vk_buffers: Vec<vk::CommandBuffer> = command_buffers
             .iter()
             .filter_map(|b| {
@@ -38,7 +38,7 @@ impl Queue for VulkanQueue {
             })
             .collect();
         if vk_buffers.is_empty() {
-            return;
+            return Ok(());
         }
 
         let wait_semas: Vec<vk::Semaphore> = wait_semaphores
@@ -64,10 +64,11 @@ impl Queue for VulkanQueue {
                 .map(|vf| vf.fence)
         }).unwrap_or(vk::Fence::null());
 
+        // Wait at color attachment output so the swapchain image is ready before we write to it.
         let wait_stages = if wait_semas.is_empty() {
             vec![]
         } else {
-            vec![vk::PipelineStageFlags::TOP_OF_PIPE; wait_semas.len()]
+            vec![vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT; wait_semas.len()]
         };
 
         let submit_info = vk::SubmitInfo::default()
@@ -79,7 +80,8 @@ impl Queue for VulkanQueue {
         unsafe {
             self.device
                 .queue_submit(self.queue, &[submit_info], fence)
-                .expect("queue submit");
+                .map_err(|e| format!("queue submit: {:?}", e))?;
         }
+        Ok(())
     }
 }

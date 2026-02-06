@@ -27,18 +27,18 @@ impl VulkanGraphicsPipeline {
             .iter()
             .map(|t| ColorAttachmentInfo {
                 format: t.format,
-                load_op: crate::LoadOp::Load,
-                store_op: crate::StoreOp::Store,
-                initial_layout: None,
+                load_op: t.load_op.unwrap_or(crate::LoadOp::Clear),
+                store_op: t.store_op.unwrap_or(crate::StoreOp::Store),
+                initial_layout: Some(crate::ImageLayout::ColorAttachment),
             })
             .collect();
 
         let depth_attachment = desc.depth_stencil.as_ref().map(|ds| DepthAttachmentInfo {
             format: ds.format,
-            depth_load_op: crate::LoadOp::Load,
-            depth_store_op: crate::StoreOp::Store,
+            depth_load_op: ds.depth_load_op.unwrap_or(crate::LoadOp::Load),
+            depth_store_op: ds.depth_store_op.unwrap_or(crate::StoreOp::Store),
         });
-        // Pipeline render pass uses UNDEFINED initial layout; caller transitions before pass when needed (e.g. swapchain).
+        // Pipeline render pass must match the one used in begin_render_pass (same initial_layout, load_op, store_op).
 
         let render_pass = super::super::render_pass::create_vk_render_pass(
             device,

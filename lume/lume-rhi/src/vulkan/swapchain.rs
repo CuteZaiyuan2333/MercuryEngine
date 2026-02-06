@@ -69,7 +69,7 @@ pub struct VulkanSwapchain {
     #[allow(dead_code)] // kept for swapchain recreation / future use
     device: Arc<ash::Device>,
     swapchain_loader: SwapchainDevice,
-    swapchain: vk::SwapchainKHR,
+    pub(crate) swapchain: vk::SwapchainKHR,
     images: Vec<VulkanSwapchainImage>,
     queue: vk::Queue,
     extent: (u32, u32),
@@ -153,6 +153,10 @@ impl std::fmt::Debug for VulkanSwapchain {
 }
 
 impl Swapchain for VulkanSwapchain {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn acquire_next_image(&mut self, wait_semaphore: Option<&dyn Semaphore>) -> Result<SwapchainFrame<'_>, String> {
         let (semaphore, _) = wait_semaphore
             .map(|s| {

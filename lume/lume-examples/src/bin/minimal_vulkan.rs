@@ -10,12 +10,12 @@ fn main() {
         size: 256,
         usage: lume_rhi::BufferUsage::STORAGE,
         memory: lume_rhi::BufferMemoryPreference::HostVisible,
-    });
-    let _fence = device.create_fence(false);
-    let _sem = device.create_semaphore();
-    let encoder = device.create_command_encoder();
-    let cmd = encoder.finish();
-    device.submit(vec![cmd]);
+    }).expect("create_buffer");
+    let _fence = device.create_fence(false).expect("create_fence");
+    let _sem = device.create_semaphore().expect("create_semaphore");
+    let encoder = device.create_command_encoder().expect("create_command_encoder");
+    let cmd = encoder.finish().expect("finish");
+    device.submit(vec![cmd]).expect("submit");
     device.wait_idle().expect("wait_idle");
     println!("Lume + Vulkan OK");
 }

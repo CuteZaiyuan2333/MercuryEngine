@@ -7,6 +7,8 @@ edition = "2021"
 default = ["vulkan"]
 vulkan = ["ash"]
 window = ["vulkan", "raw-window-handle"]
+# Enable Vulkan validation layers (recommended for debug builds). Also respects LUME_VALIDATION=1 env var.
+validation = ["vulkan"]
 
 [dependencies]
 bitflags = "2.4"

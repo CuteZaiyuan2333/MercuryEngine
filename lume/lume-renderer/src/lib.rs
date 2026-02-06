@@ -8,7 +8,10 @@ pub mod gi;
 pub mod graph;
 pub mod virtual_geom;
 
-pub use graph::{RenderGraph, RenderGraphNode, ResourceHandle, ResourceId as GraphResourceId, NodeId};
+pub use graph::{
+    NodeId, RenderGraph, RenderGraphNode, ResourceHandle, ResourceId as GraphResourceId,
+    TextureBarrierHint,
+};
 
 pub struct Renderer {
     device: Arc<dyn Device>,

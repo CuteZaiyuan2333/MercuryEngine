@@ -19,14 +19,14 @@ fn main() {
         usage: TextureUsage::RENDER_ATTACHMENT | TextureUsage::COPY_SRC,
         dimension: TextureDimension::D2,
         mip_level_count: 1,
-    });
+    }).expect("create_texture");
 
     let vertex_buffer = device.create_buffer(&lume_rhi::BufferDescriptor {
         label: Some("vertices"),
         size: 9 * 4,
         usage: BufferUsage::VERTEX,
         memory: lume_rhi::BufferMemoryPreference::HostVisible,
-    });
+    }).expect("create_buffer");
     let vertices: [f32; 9] = [0.0, 0.6, 0.0, -0.6, -0.6, 0.0, 0.6, -0.6, 0.0];
     device
         .write_buffer(vertex_buffer.as_ref(), 0, bytemuck::bytes_of(&vertices))
@@ -39,7 +39,7 @@ fn main() {
         size: UBO_SIZE,
         usage: BufferUsage::UNIFORM,
         memory: lume_rhi::BufferMemoryPreference::HostVisible,
-    });
+    }).expect("create_buffer ubo");
     let color_data: [f32; 4] = [0.2, 0.8, 0.2, 1.0]; // green
     device
         .write_buffer(uniform_buffer.as_ref(), 0, bytemuck::bytes_of(&color_data))
@@ -80,19 +80,21 @@ fn main() {
         color_targets: vec![ColorTargetState {
             format: TextureFormat::Rgba8Unorm,
             blend: None,
+            load_op: None,
+            store_op: None,
         }],
         depth_stencil: None,
         layout_bindings: layout_bindings.clone(),
     };
 
-    let pipeline = device.create_graphics_pipeline(&pipeline_desc);
-    let layout = device.create_descriptor_set_layout(&layout_bindings);
-    let pool = device.create_descriptor_pool(1);
+    let pipeline = device.create_graphics_pipeline(&pipeline_desc).expect("create_graphics_pipeline");
+    let layout = device.create_descriptor_set_layout(&layout_bindings).expect("create_descriptor_set_layout");
+    let pool = device.create_descriptor_pool(1).expect("create_descriptor_pool");
     let mut set = pool.allocate_set(layout.as_ref()).expect("allocate set");
     // UBO range must be multiple of minUniformBufferOffsetAlignment (often 256)
-    set.write_buffer(0, uniform_buffer.as_ref(), 0, UBO_SIZE);
+    set.write_buffer(0, uniform_buffer.as_ref(), 0, UBO_SIZE).expect("write_buffer");
 
-    let mut encoder = device.create_command_encoder();
+    let mut encoder = device.create_command_encoder().expect("create_command_encoder");
     let mut pass = encoder.begin_render_pass(RenderPassDescriptor {
         label: Some("ubo_pass"),
         color_attachments: vec![ColorAttachment {
@@ -105,9 +107,10 @@ fn main() {
                 b: 0.15,
                 a: 1.0,
             }),
+            initial_layout: None,
         }],
         depth_stencil_attachment: None,
-    });
+    }).expect("begin_render_pass");
 
     pass.set_pipeline(pipeline.as_ref());
     pass.bind_descriptor_set(0, set.as_ref());
@@ -115,8 +118,8 @@ fn main() {
     pass.draw(3, 1, 0, 0);
     pass.end();
 
-    let cmd = encoder.finish();
-    device.submit(vec![cmd]);
+    let cmd = encoder.finish().expect("finish");
+    device.submit(vec![cmd]).expect("submit");
     device.wait_idle().expect("wait_idle");
 
     println!("UBO triangle OK");
