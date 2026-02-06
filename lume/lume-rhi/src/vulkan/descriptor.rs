@@ -2,7 +2,7 @@
 
 use crate::{
     Buffer, DescriptorPool, DescriptorSet, DescriptorSetLayout, DescriptorSetLayoutBinding,
-    DescriptorType, ShaderStages, Texture,
+    DescriptorType, Sampler, ShaderStages, Texture,
 };
 use ash::vk;
 
@@ -49,6 +49,7 @@ pub fn descriptor_type_to_vk(t: DescriptorType) -> vk::DescriptorType {
         DescriptorType::StorageBuffer => vk::DescriptorType::STORAGE_BUFFER,
         DescriptorType::StorageImage => vk::DescriptorType::STORAGE_IMAGE,
         DescriptorType::SampledImage => vk::DescriptorType::SAMPLED_IMAGE,
+        DescriptorType::CombinedImageSampler => vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
     }
 }
 
@@ -92,6 +93,9 @@ pub fn create_descriptor_pool(device: &ash::Device, max_sets: u32) -> Result<Vul
             .descriptor_count(max_sets * 4),
         vk::DescriptorPoolSize::default()
             .ty(vk::DescriptorType::SAMPLED_IMAGE)
+            .descriptor_count(max_sets * 4),
+        vk::DescriptorPoolSize::default()
+            .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
             .descriptor_count(max_sets * 4),
     ];
     let create_info = vk::DescriptorPoolCreateInfo::default()
@@ -230,6 +234,34 @@ impl DescriptorSet for VulkanDescriptorSet {
         let image_info = vk::DescriptorImageInfo::default()
             .image_view(vk_tex.view)
             .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
+        let write = vk::WriteDescriptorSet::default()
+            .dst_set(self.set)
+            .dst_binding(binding)
+            .dst_array_element(0)
+            .descriptor_type(vk_ty)
+            .image_info(std::slice::from_ref(&image_info));
+        unsafe {
+            self.device.update_descriptor_sets(&[write], &[]);
+        }
+    }
+
+    fn write_sampled_image(&mut self, binding: u32, texture: &dyn Texture, sampler: &dyn Sampler) {
+        let descriptor_type = self
+            .descriptor_type_for_binding(binding)
+            .expect("write_sampled_image: binding not found in layout");
+        let vk_ty = descriptor_type_to_vk(descriptor_type);
+        let vk_tex = texture
+            .as_any()
+            .downcast_ref::<super::texture::VulkanTexture>()
+            .expect("Texture must be VulkanTexture");
+        let vk_sampler = sampler
+            .as_any()
+            .downcast_ref::<super::sampler::VulkanSampler>()
+            .expect("Sampler must be VulkanSampler");
+        let image_info = vk::DescriptorImageInfo::default()
+            .image_view(vk_tex.view)
+            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .sampler(vk_sampler.sampler);
         let write = vk::WriteDescriptorSet::default()
             .dst_set(self.set)
             .dst_binding(binding)

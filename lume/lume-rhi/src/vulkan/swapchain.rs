@@ -66,12 +66,14 @@ impl Texture for VulkanSwapchainImage {
 }
 
 pub struct VulkanSwapchain {
+    #[allow(dead_code)] // kept for swapchain recreation / future use
     device: Arc<ash::Device>,
     swapchain_loader: SwapchainDevice,
     swapchain: vk::SwapchainKHR,
     images: Vec<VulkanSwapchainImage>,
     queue: vk::Queue,
     extent: (u32, u32),
+    format: TextureFormat,
 }
 
 impl VulkanSwapchain {
@@ -126,6 +128,7 @@ impl VulkanSwapchain {
             images,
             queue,
             extent,
+            format,
         })
     }
 }
@@ -190,5 +193,13 @@ impl Swapchain for VulkanSwapchain {
 
     fn extent(&self) -> (u32, u32) {
         self.extent
+    }
+
+    fn image_count(&self) -> u32 {
+        self.images.len() as u32
+    }
+
+    fn format(&self) -> TextureFormat {
+        self.format
     }
 }

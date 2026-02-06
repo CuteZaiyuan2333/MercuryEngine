@@ -29,6 +29,7 @@ impl VulkanGraphicsPipeline {
                 format: t.format,
                 load_op: crate::LoadOp::Load,
                 store_op: crate::StoreOp::Store,
+                initial_layout: None,
             })
             .collect();
 
@@ -37,6 +38,7 @@ impl VulkanGraphicsPipeline {
             depth_load_op: crate::LoadOp::Load,
             depth_store_op: crate::StoreOp::Store,
         });
+        // Pipeline render pass uses UNDEFINED initial layout; caller transitions before pass when needed (e.g. swapchain).
 
         let render_pass = super::super::render_pass::create_vk_render_pass(
             device,

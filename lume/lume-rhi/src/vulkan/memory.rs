@@ -5,6 +5,8 @@ use ash::vk;
 use std::sync::Arc;
 
 /// Memory heap for sub-allocations. Manages a large device allocation.
+/// Used by streaming/upload paths (VG/GI); reserved for future use.
+#[allow(dead_code)]
 pub struct VulkanMemoryHeap {
     pub device: Arc<ash::Device>,
     pub memory: vk::DeviceMemory,
@@ -12,25 +14,30 @@ pub struct VulkanMemoryHeap {
     pub memory_type_index: u32,
 }
 
+#[allow(dead_code)]
 impl VulkanMemoryHeap {
-    /// Create a device-local memory heap of the given size.
+    /// Create a memory heap for sub-allocations. `memory_type_bits` is the mask from buffer/image memory requirements;
+    /// `prefer_device_local` selects a device-local type when possible.
     pub fn new(
         device: Arc<ash::Device>,
         instance: &ash::Instance,
         physical_device: vk::PhysicalDevice,
         size: u64,
-        device_local: bool,
+        memory_type_bits: u32,
+        prefer_device_local: bool,
     ) -> Result<Self, String> {
         let props = unsafe { instance.get_physical_device_memory_properties(physical_device) };
         let memory_type_index = (0..props.memory_type_count)
             .find(|i| {
+                let suitable = (memory_type_bits & (1 << i)) != 0;
                 let mt = &props.memory_types[*i as usize];
-                let suitable = (1u64 << i) != 0; // Any memory type for now
-                let has_device_local = !device_local
-                    || mt.property_flags.contains(vk::MemoryPropertyFlags::DEVICE_LOCAL);
-                suitable && has_device_local
+                let has_device_local = mt.property_flags.contains(vk::MemoryPropertyFlags::DEVICE_LOCAL);
+                suitable && (!prefer_device_local || has_device_local)
             })
-            .ok_or("No suitable memory type")? as u32;
+            .or_else(|| {
+                (0..props.memory_type_count).find(|i| (memory_type_bits & (1 << i)) != 0)
+            })
+            .ok_or("No suitable memory type for heap")? as u32;
 
         let allocate_info = vk::MemoryAllocateInfo::default()
             .allocation_size(size)

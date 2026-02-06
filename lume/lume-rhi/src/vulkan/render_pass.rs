@@ -1,6 +1,6 @@
 //! Vulkan Render Pass creation and recording.
 
-use crate::{DescriptorSet, IndexFormat, LoadOp, StoreOp};
+use crate::{DescriptorSet, ImageLayout, IndexFormat, LoadOp, StoreOp};
 use ash::vk;
 use std::sync::Arc;
 
@@ -8,6 +8,19 @@ use super::buffer::VulkanBuffer;
 use super::descriptor::VulkanDescriptorSet;
 use super::pipeline::VulkanGraphicsPipeline;
 use super::texture::texture_format_to_vk;
+
+fn image_layout_to_vk(l: ImageLayout) -> vk::ImageLayout {
+    match l {
+        ImageLayout::Undefined => vk::ImageLayout::UNDEFINED,
+        ImageLayout::TransferDst => vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+        ImageLayout::TransferSrc => vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+        ImageLayout::ShaderReadOnly => vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        ImageLayout::ColorAttachment => vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+        ImageLayout::DepthStencilAttachment => vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        ImageLayout::General => vk::ImageLayout::GENERAL,
+        ImageLayout::PresentSrc => vk::ImageLayout::PRESENT_SRC_KHR,
+    }
+}
 
 /// Create a VkRenderPass from attachment formats and load/store ops.
 /// Used by both pipeline creation and begin_render_pass.
@@ -23,6 +36,10 @@ pub fn create_vk_render_pass(
     for (i, att) in color_attachments.iter().enumerate() {
         let (load_op, store_op) = (load_op_to_vk(att.load_op), store_op_to_vk(att.store_op));
         let format = texture_format_to_vk(att.format);
+        let initial = att
+            .initial_layout
+            .map(image_layout_to_vk)
+            .unwrap_or(vk::ImageLayout::UNDEFINED);
         attachments.push(
             vk::AttachmentDescription::default()
                 .format(format)
@@ -31,7 +48,7 @@ pub fn create_vk_render_pass(
                 .store_op(store_op)
                 .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
                 .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
-                .initial_layout(vk::ImageLayout::UNDEFINED)
+                .initial_layout(initial)
                 .final_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL),
         );
         color_refs.push(
@@ -87,6 +104,8 @@ pub struct ColorAttachmentInfo {
     pub format: crate::TextureFormat,
     pub load_op: LoadOp,
     pub store_op: StoreOp,
+    /// Layout the image is in when the render pass begins. Default UNDEFINED if not set.
+    pub initial_layout: Option<crate::ImageLayout>,
 }
 
 pub struct DepthAttachmentInfo {
@@ -267,18 +286,19 @@ impl crate::RenderPass for VulkanRenderPassRecorder {
         }
     }
 
-    fn draw_indexed_indirect(&mut self, buffer: &dyn crate::Buffer, offset: u64) {
+    fn draw_indexed_indirect(&mut self, buffer: &dyn crate::Buffer, offset: u64, draw_count: u32, stride: u32) {
         let vk_buf = buffer
             .as_any()
             .downcast_ref::<VulkanBuffer>()
             .expect("Buffer must be VulkanBuffer");
+        let stride = if stride != 0 { stride } else { std::mem::size_of::<vk::DrawIndexedIndirectCommand>() as u32 };
         unsafe {
             self.device.cmd_draw_indexed_indirect(
                 self.command_buffer,
                 vk_buf.buffer,
                 offset,
-                1,
-                std::mem::size_of::<vk::DrawIndexedIndirectCommand>() as u32,
+                draw_count.max(1),
+                stride,
             );
         }
     }

@@ -8,7 +8,8 @@ fn main() {
     let _buffer = device.create_buffer(&lume_rhi::BufferDescriptor {
         label: Some("minimal"),
         size: 256,
-        usage: lume_rhi::BufferUsage::Storage,
+        usage: lume_rhi::BufferUsage::STORAGE,
+        memory: lume_rhi::BufferMemoryPreference::HostVisible,
     });
     let _fence = device.create_fence(false);
     let _sem = device.create_semaphore();

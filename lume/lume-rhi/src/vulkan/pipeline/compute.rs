@@ -15,7 +15,7 @@ pub struct VulkanComputePipeline {
 
 impl VulkanComputePipeline {
     pub fn create(device: &ash::Device, desc: &ComputePipelineDescriptor) -> Result<Self, String> {
-        let code = desc.shader_source.as_bytes();
+        let code = &desc.shader_source[..];
         if code.len() % 4 != 0 {
             return Err("SPIR-V must be 4-byte aligned".to_string());
         }

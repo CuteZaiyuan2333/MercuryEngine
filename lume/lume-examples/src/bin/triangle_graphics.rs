@@ -24,7 +24,8 @@ fn main() {
     let vertex_buffer = device.create_buffer(&lume_rhi::BufferDescriptor {
         label: Some("vertices"),
         size: 9 * 4,
-        usage: BufferUsage::Vertex,
+        usage: BufferUsage::VERTEX,
+        memory: lume_rhi::BufferMemoryPreference::HostVisible,
     });
 
     let pipeline_desc = GraphicsPipelineDescriptor {

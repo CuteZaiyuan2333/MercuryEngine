@@ -7,16 +7,17 @@ mod memory;
 mod pipeline;
 mod queue;
 mod render_pass;
+mod sampler;
 mod texture;
 
 #[cfg(feature = "window")]
 mod swapchain;
 
 use crate::{
-    Buffer, BufferDescriptor, BufferUsage, CommandBuffer, CommandEncoder, ComputePass,
+    Buffer, BufferDescriptor, BufferMemoryPreference, BufferUsage, CommandBuffer, CommandEncoder, ComputePass,
     ComputePipelineDescriptor, DescriptorSetLayoutBinding, DescriptorPool, DescriptorSetLayout,
     Device, Fence, GraphicsPipelineDescriptor, ImageLayout, RenderPassDescriptor, ResourceId,
-    Semaphore, Texture, TextureDescriptor,
+    Sampler, SamplerDescriptor, Semaphore, Texture, TextureDescriptor, TextureFormat,
 };
 use ash::vk;
 use std::ffi::CString;
@@ -26,6 +27,7 @@ pub use buffer::VulkanBuffer;
 pub use descriptor::{VulkanDescriptorPool, VulkanDescriptorSet, VulkanDescriptorSetLayout};
 pub use pipeline::{VulkanComputePipeline, VulkanGraphicsPipeline};
 pub use render_pass::{ColorAttachmentInfo, DepthAttachmentInfo};
+pub use sampler::VulkanSampler;
 pub use texture::{create_texture as create_vulkan_texture, VulkanTexture};
 
 #[cfg(feature = "window")]
@@ -73,6 +75,7 @@ fn image_layout_to_vk(l: ImageLayout) -> vk::ImageLayout {
         ImageLayout::ColorAttachment => vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
         ImageLayout::DepthStencilAttachment => vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
         ImageLayout::General => vk::ImageLayout::GENERAL,
+        ImageLayout::PresentSrc => vk::ImageLayout::PRESENT_SRC_KHR,
     }
 }
 
@@ -141,12 +144,13 @@ impl VulkanDevice {
     #[cfg(feature = "window")]
     /// Create a Vulkan device with a window surface for swapchain/presentation.
     pub fn new_with_surface(
-        window: &impl raw_window_handle::HasRawWindowHandle,
+        window: &impl raw_window_handle::HasWindowHandle,
     ) -> Result<Arc<Self>, String> {
         use ash::khr::surface::Instance as SurfaceInstance;
         use ash::khr::swapchain::Device as SwapchainDevice;
         use std::ffi::CStr;
-        let raw = window.raw_window_handle().map_err(|e| format!("raw_window_handle: {:?}", e))?;
+        let handle = window.window_handle().map_err(|e| format!("window_handle: {:?}", e))?;
+        let raw = handle.as_raw();
         let (hwnd, hinstance) = match raw {
             raw_window_handle::RawWindowHandle::Win32(win) => {
                 let hwnd = win.hwnd.get() as isize;
@@ -243,25 +247,25 @@ impl VulkanDevice {
 
     fn buffer_usage_to_vk(usage: BufferUsage) -> vk::BufferUsageFlags {
         let mut flags = vk::BufferUsageFlags::empty();
-        if matches!(usage, BufferUsage::Vertex) {
+        if usage.contains(BufferUsage::VERTEX) {
             flags |= vk::BufferUsageFlags::VERTEX_BUFFER;
         }
-        if matches!(usage, BufferUsage::Index) {
+        if usage.contains(BufferUsage::INDEX) {
             flags |= vk::BufferUsageFlags::INDEX_BUFFER;
         }
-        if matches!(usage, BufferUsage::Uniform) {
+        if usage.contains(BufferUsage::UNIFORM) {
             flags |= vk::BufferUsageFlags::UNIFORM_BUFFER;
         }
-        if matches!(usage, BufferUsage::Storage) {
+        if usage.contains(BufferUsage::STORAGE) {
             flags |= vk::BufferUsageFlags::STORAGE_BUFFER;
         }
-        if matches!(usage, BufferUsage::CopySrc) {
+        if usage.contains(BufferUsage::COPY_SRC) {
             flags |= vk::BufferUsageFlags::TRANSFER_SRC;
         }
-        if matches!(usage, BufferUsage::CopyDst) {
+        if usage.contains(BufferUsage::COPY_DST) {
             flags |= vk::BufferUsageFlags::TRANSFER_DST;
         }
-        if matches!(usage, BufferUsage::Indirect) {
+        if usage.contains(BufferUsage::INDIRECT) {
             flags |= vk::BufferUsageFlags::INDIRECT_BUFFER;
         }
         flags
@@ -301,18 +305,24 @@ impl Device for VulkanDevice {
             self.device.create_buffer(&create_info, None).expect("create buffer")
         };
         let requirements = unsafe { self.device.get_buffer_memory_requirements(buffer) };
-        let memory_type_index = {
-            let props = unsafe {
-                self.instance.get_physical_device_memory_properties(self.physical_device)
-            };
-            (0..props.memory_type_count)
+        let props = unsafe {
+            self.instance.get_physical_device_memory_properties(self.physical_device)
+        };
+        let memory_type_index = match desc.memory {
+            BufferMemoryPreference::HostVisible => (0..props.memory_type_count)
                 .find(|i| {
                     let suitable = (requirements.memory_type_bits & (1 << i)) != 0;
-                    let host_visible = props.memory_types[*i as usize].property_flags
-                        .contains(vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT);
-                    suitable && host_visible
+                    let flags = &props.memory_types[*i as usize].property_flags;
+                    suitable && flags.contains(vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT)
                 })
-                .unwrap_or(0) as u32
+                .unwrap_or(0) as u32,
+            BufferMemoryPreference::DeviceLocal => (0..props.memory_type_count)
+                .find(|i| {
+                    let suitable = (requirements.memory_type_bits & (1 << i)) != 0;
+                    let flags = &props.memory_types[*i as usize].property_flags;
+                    suitable && flags.contains(vk::MemoryPropertyFlags::DEVICE_LOCAL)
+                })
+                .unwrap_or(0) as u32,
         };
         let allocate_info = vk::MemoryAllocateInfo::default()
             .allocation_size(requirements.size)
@@ -324,12 +334,14 @@ impl Device for VulkanDevice {
             self.device.bind_buffer_memory(buffer, memory, 0).expect("bind buffer memory");
         }
         let id = self.next_id();
+        let host_visible = matches!(desc.memory, BufferMemoryPreference::HostVisible);
         Box::new(buffer::VulkanBuffer {
             device: Arc::clone(&self.device),
             buffer,
             memory,
             size,
             id,
+            host_visible,
         })
     }
 
@@ -343,6 +355,13 @@ impl Device for VulkanDevice {
         ) {
             Ok(tex) => Box::new(tex),
             Err(e) => panic!("create_texture failed: {}", e),
+        }
+    }
+
+    fn create_sampler(&self, desc: &SamplerDescriptor) -> Box<dyn Sampler> {
+        match sampler::create_sampler(self.device.clone(), desc) {
+            Ok(s) => Box::new(s),
+            Err(e) => panic!("create_sampler failed: {}", e),
         }
     }
 
@@ -393,6 +412,9 @@ impl Device for VulkanDevice {
     }
 
     fn write_buffer(&self, buffer: &dyn crate::Buffer, offset: u64, data: &[u8]) -> Result<(), String> {
+        if !buffer.host_visible() {
+            return Err("write_buffer requires a host-visible buffer; use DeviceLocal + staging copy for device-local buffers".to_string());
+        }
         let vk_buf = buffer
             .as_any()
             .downcast_ref::<buffer::VulkanBuffer>()
@@ -581,6 +603,7 @@ impl CommandEncoder for VulkanCommandEncoder {
                 format: a.texture.format(),
                 load_op: a.load_op,
                 store_op: a.store_op,
+                initial_layout: a.initial_layout,
             })
             .collect();
 
@@ -732,13 +755,40 @@ impl CommandEncoder for VulkanCommandEncoder {
             image_layout_to_vk(old_layout),
             image_layout_to_vk(new_layout),
         );
+        let aspect_mask = if matches!(texture.format(), TextureFormat::D32Float) {
+            vk::ImageAspectFlags::DEPTH
+        } else {
+            vk::ImageAspectFlags::COLOR
+        };
+        let (src_stage, src_access, dst_stage, dst_access) = match (old_layout, new_layout) {
+            (ImageLayout::Undefined, ImageLayout::ColorAttachment) | (ImageLayout::PresentSrc, ImageLayout::ColorAttachment) => (
+                vk::PipelineStageFlags::TOP_OF_PIPE,
+                vk::AccessFlags::empty(),
+                vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+            ),
+            (ImageLayout::ColorAttachment, ImageLayout::PresentSrc) => (
+                vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+                vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+                vk::AccessFlags::MEMORY_READ,
+            ),
+            _ => (
+                vk::PipelineStageFlags::TOP_OF_PIPE,
+                vk::AccessFlags::empty(),
+                vk::PipelineStageFlags::TOP_OF_PIPE,
+                vk::AccessFlags::empty(),
+            ),
+        };
         let barrier = vk::ImageMemoryBarrier::default()
             .old_layout(old_l)
             .new_layout(new_l)
             .image(image)
+            .src_access_mask(src_access)
+            .dst_access_mask(dst_access)
             .subresource_range(
                 vk::ImageSubresourceRange::default()
-                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .aspect_mask(aspect_mask)
                     .base_mip_level(0)
                     .level_count(1)
                     .base_array_layer(0)
@@ -747,12 +797,53 @@ impl CommandEncoder for VulkanCommandEncoder {
         unsafe {
             self.device.cmd_pipeline_barrier(
                 self.buffer,
-                vk::PipelineStageFlags::TOP_OF_PIPE,
-                vk::PipelineStageFlags::TOP_OF_PIPE,
+                src_stage,
+                dst_stage,
                 vk::DependencyFlags::empty(),
                 &[],
                 &[],
                 &[barrier],
+            );
+        }
+    }
+
+    fn pipeline_barrier_buffer(
+        &mut self,
+        buffer: &dyn crate::Buffer,
+        offset: u64,
+        size: u64,
+    ) {
+        let vk_buf = buffer
+            .as_any()
+            .downcast_ref::<buffer::VulkanBuffer>()
+            .expect("Buffer must be VulkanBuffer");
+        let size = if size == 0 {
+            buffer.size().saturating_sub(offset)
+        } else {
+            size
+        };
+        if size == 0 {
+            return;
+        }
+        let barrier = vk::BufferMemoryBarrier::default()
+            .src_access_mask(vk::AccessFlags::SHADER_WRITE)
+            .dst_access_mask(vk::AccessFlags::SHADER_READ)
+            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .buffer(vk_buf.buffer)
+            .offset(offset)
+            .size(size);
+        unsafe {
+            self.device.cmd_pipeline_barrier(
+                self.buffer,
+                vk::PipelineStageFlags::COMPUTE_SHADER,
+                vk::PipelineStageFlags::VERTEX_SHADER
+                    | vk::PipelineStageFlags::FRAGMENT_SHADER
+                    | vk::PipelineStageFlags::COMPUTE_SHADER,
+                vk::DependencyFlags::empty(),
+                &[],
+                &[barrier],
+                &[],
             );
         }
     }
@@ -863,6 +954,16 @@ impl ComputePass for VulkanComputePass {
     fn dispatch(&mut self, x: u32, y: u32, z: u32) {
         unsafe {
             self.device.cmd_dispatch(self.buffer, x, y, z);
+        }
+    }
+
+    fn dispatch_indirect(&mut self, buffer: &dyn crate::Buffer, offset: u64) {
+        let vk_buf = buffer
+            .as_any()
+            .downcast_ref::<buffer::VulkanBuffer>()
+            .expect("Buffer must be VulkanBuffer");
+        unsafe {
+            self.device.cmd_dispatch_indirect(self.buffer, vk_buf.buffer, offset);
         }
     }
 }

@@ -24,7 +24,8 @@ fn main() {
     let vertex_buffer = device.create_buffer(&lume_rhi::BufferDescriptor {
         label: Some("vertices"),
         size: 9 * 4,
-        usage: BufferUsage::Vertex,
+        usage: BufferUsage::VERTEX,
+        memory: lume_rhi::BufferMemoryPreference::HostVisible,
     });
     let vertices: [f32; 9] = [0.0, 0.6, 0.0, -0.6, -0.6, 0.0, 0.6, -0.6, 0.0];
     device
@@ -36,7 +37,8 @@ fn main() {
     let uniform_buffer = device.create_buffer(&lume_rhi::BufferDescriptor {
         label: Some("ubo"),
         size: UBO_SIZE,
-        usage: BufferUsage::Uniform,
+        usage: BufferUsage::UNIFORM,
+        memory: lume_rhi::BufferMemoryPreference::HostVisible,
     });
     let color_data: [f32; 4] = [0.2, 0.8, 0.2, 1.0]; // green
     device

@@ -7,15 +7,18 @@ use std::fmt::Debug;
 /// Unique identifier for a GPU resource.
 pub type ResourceId = u64;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BufferUsage {
-    Vertex,
-    Index,
-    Uniform,
-    Storage,
-    CopySrc,
-    CopyDst,
-    Indirect,
+bitflags::bitflags! {
+    /// Buffer usage flags; combine for buffers used in multiple ways (e.g. Vertex | Index | Indirect).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct BufferUsage: u32 {
+        const VERTEX = 1 << 0;
+        const INDEX = 1 << 1;
+        const UNIFORM = 1 << 2;
+        const STORAGE = 1 << 3;
+        const COPY_SRC = 1 << 4;
+        const COPY_DST = 1 << 5;
+        const INDIRECT = 1 << 6;
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +46,7 @@ pub enum TextureDimension {
 pub trait Device: Send + Sync + Debug {
     fn create_buffer(&self, desc: &BufferDescriptor) -> Box<dyn Buffer>;
     fn create_texture(&self, desc: &TextureDescriptor) -> Box<dyn Texture>;
+    fn create_sampler(&self, desc: &SamplerDescriptor) -> Box<dyn Sampler>;
     fn create_compute_pipeline(&self, desc: &ComputePipelineDescriptor) -> Box<dyn ComputePipeline>;
     fn create_graphics_pipeline(&self, desc: &GraphicsPipelineDescriptor) -> Box<dyn GraphicsPipeline>;
     fn create_descriptor_set_layout(&self, bindings: &[DescriptorSetLayoutBinding]) -> Box<dyn DescriptorSetLayout>;
@@ -57,7 +61,7 @@ pub trait Device: Send + Sync + Debug {
     /// Get the main queue (graphics+compute) for submissions.
     fn queue(&self) -> Box<dyn Queue>;
 
-    /// Write data into a buffer (CPU to GPU). Buffer must have been created with host-visible usage.
+    /// Write data into a buffer (CPU to GPU). Buffer must be host-visible (Buffer::host_visible() == true).
     fn write_buffer(&self, buffer: &dyn Buffer, offset: u64, data: &[u8]) -> Result<(), String>;
 
     /// Wait for the device to become idle (all submitted work finished).
@@ -99,16 +103,41 @@ pub trait Queue: Send + Sync + Debug {
     );
 }
 
-#[derive(Debug)]
+/// When true, buffer is mappable (host-visible) and write_buffer can be used. When false, device-local only (e.g. for VG/GI streaming).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BufferMemoryPreference {
+    #[default]
+    HostVisible,
+    DeviceLocal,
+}
+
+#[derive(Debug, Clone)]
 pub struct BufferDescriptor {
     pub label: Option<&'static str>,
     pub size: u64,
     pub usage: BufferUsage,
+    /// HostVisible: mappable, write_buffer works. DeviceLocal: faster GPU access, write via copy from staging.
+    pub memory: BufferMemoryPreference,
+}
+
+impl Default for BufferDescriptor {
+    fn default() -> Self {
+        Self {
+            label: None,
+            size: 0,
+            usage: BufferUsage::VERTEX,
+            memory: BufferMemoryPreference::HostVisible,
+        }
+    }
 }
 
 pub trait Buffer: Send + Sync + Debug {
     fn id(&self) -> ResourceId;
     fn size(&self) -> u64;
+    /// If true, Device::write_buffer can be used. If false, buffer is device-local; upload via staging copy.
+    fn host_visible(&self) -> bool {
+        true
+    }
     fn as_any(&self) -> &dyn Any;
 }
 
@@ -156,6 +185,54 @@ pub trait Texture: Send + Sync + Debug {
     fn as_any(&self) -> &dyn Any;
 }
 
+/// Filter mode for sampler min/mag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FilterMode {
+    #[default]
+    Nearest,
+    Linear,
+}
+
+/// Address mode for sampler U/V/W.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AddressMode {
+    #[default]
+    Repeat,
+    MirroredRepeat,
+    ClampToEdge,
+    ClampToBorder,
+}
+
+#[derive(Debug, Clone)]
+pub struct SamplerDescriptor {
+    pub label: Option<&'static str>,
+    pub min_filter: FilterMode,
+    pub mag_filter: FilterMode,
+    pub address_mode_u: AddressMode,
+    pub address_mode_v: AddressMode,
+    pub address_mode_w: AddressMode,
+    pub anisotropy_clamp: Option<f32>,
+}
+
+impl Default for SamplerDescriptor {
+    fn default() -> Self {
+        Self {
+            label: None,
+            min_filter: FilterMode::Linear,
+            mag_filter: FilterMode::Linear,
+            address_mode_u: AddressMode::Repeat,
+            address_mode_v: AddressMode::Repeat,
+            address_mode_w: AddressMode::Repeat,
+            anisotropy_clamp: None,
+        }
+    }
+}
+
+/// Sampler for texture sampling (filter, address mode). Used with CombinedImageSampler in descriptor sets.
+pub trait Sampler: Send + Sync + Debug {
+    fn as_any(&self) -> &dyn Any;
+}
+
 pub trait ComputePipeline: Send + Sync + Debug {
     fn as_any(&self) -> &dyn Any;
 }
@@ -163,7 +240,8 @@ pub trait ComputePipeline: Send + Sync + Debug {
 #[derive(Debug, Clone, Default)]
 pub struct ComputePipelineDescriptor {
     pub label: Option<&'static str>,
-    pub shader_source: String,
+    /// SPIR-V binary (little-endian, 4-byte aligned).
+    pub shader_source: Vec<u8>,
     pub entry_point: String,
     pub layout_bindings: Vec<DescriptorSetLayoutBinding>,
 }
@@ -338,6 +416,8 @@ pub struct ColorAttachment<'a> {
     pub load_op: LoadOp,
     pub store_op: StoreOp,
     pub clear_value: Option<ClearColor>,
+    /// Layout the image is in when the render pass begins. None = Undefined (render pass will transition).
+    pub initial_layout: Option<ImageLayout>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -397,6 +477,14 @@ pub trait CommandEncoder: Debug {
         old_layout: ImageLayout,
         new_layout: ImageLayout,
     );
+    /// Insert a pipeline barrier for buffer memory (e.g. compute write -> graphics/compute read).
+    /// Uses shader write -> shader read with compute stage to fragment/vertex/compute.
+    fn pipeline_barrier_buffer(
+        &mut self,
+        buffer: &dyn Buffer,
+        offset: u64,
+        size: u64,
+    );
     fn finish(self: Box<Self>) -> Box<dyn CommandBuffer>;
 }
 
@@ -409,6 +497,8 @@ pub enum ImageLayout {
     ColorAttachment,
     DepthStencilAttachment,
     General,
+    /// For swapchain images before present. Use after render pass, then present.
+    PresentSrc,
 }
 
 /// Render pass for recording draw calls.
@@ -427,7 +517,8 @@ pub trait RenderPass: Debug {
         vertex_offset: i32,
         first_instance: u32,
     );
-    fn draw_indexed_indirect(&mut self, buffer: &dyn Buffer, offset: u64);
+    /// Draw indexed indirect. For VG, use draw_count > 1 and stride = sizeof(DrawIndexedIndirectCommand).
+    fn draw_indexed_indirect(&mut self, buffer: &dyn Buffer, offset: u64, draw_count: u32, stride: u32);
     fn end(self: Box<Self>);
 }
 
@@ -441,6 +532,8 @@ pub trait ComputePass: Debug {
     fn set_pipeline(&mut self, pipeline: &dyn ComputePipeline);
     fn bind_descriptor_set(&mut self, set_index: u32, set: &dyn DescriptorSet);
     fn dispatch(&mut self, x: u32, y: u32, z: u32);
+    /// Dispatch compute using indirect buffer (offset in bytes to VkDispatchIndirectCommand: x, y, z).
+    fn dispatch_indirect(&mut self, buffer: &dyn Buffer, offset: u64);
 }
 
 /// Descriptor binding type for layout.
@@ -450,6 +543,8 @@ pub enum DescriptorType {
     StorageBuffer,
     StorageImage,
     SampledImage,
+    /// Image + sampler in one binding; use write_sampled_image to bind both.
+    CombinedImageSampler,
 }
 
 /// Descriptor set layout binding.
@@ -484,6 +579,8 @@ pub trait DescriptorPool: Send + Sync + Debug {
 pub trait DescriptorSet: Send + Sync + Debug {
     fn write_buffer(&mut self, binding: u32, buffer: &dyn Buffer, offset: u64, size: u64);
     fn write_texture(&mut self, binding: u32, texture: &dyn Texture);
+    /// Bind texture + sampler for a CombinedImageSampler binding (or SampledImage with separate sampler).
+    fn write_sampled_image(&mut self, binding: u32, texture: &dyn Texture, sampler: &dyn Sampler);
     fn as_any(&self) -> &dyn Any;
 }
 
@@ -506,6 +603,10 @@ pub trait Swapchain: Send + Sync + Debug {
     fn present(&self, image_index: u32, wait_semaphore: Option<&dyn Semaphore>) -> Result<(), String>;
     /// Current extent (width, height). May change on resize.
     fn extent(&self) -> (u32, u32);
+    /// Number of swapchain images (for layout tracking).
+    fn image_count(&self) -> u32;
+    /// Color format of swapchain images. Pipeline color_targets must use this format for compatibility.
+    fn format(&self) -> TextureFormat;
 }
 
 #[cfg(feature = "vulkan")]

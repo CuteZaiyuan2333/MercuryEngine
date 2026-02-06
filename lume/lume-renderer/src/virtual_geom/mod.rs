@@ -82,7 +82,8 @@ impl VirtualGeometryManager {
         let buf = self.device.create_buffer(&BufferDescriptor {
             label: Some("vg_indirect"),
             size,
-            usage: BufferUsage::Indirect,
+            usage: BufferUsage::INDIRECT,
+            memory: lume_rhi::BufferMemoryPreference::HostVisible,
         });
         let bytes = unsafe {
             std::slice::from_raw_parts(

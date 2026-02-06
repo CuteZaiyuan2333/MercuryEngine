@@ -3,8 +3,8 @@
 
 use lume_rhi::{
     BufferUsage, ColorAttachment, ColorTargetState, DescriptorSetLayoutBinding, DescriptorType,
-    Device, GraphicsPipelineDescriptor, LoadOp, PrimitiveTopology, RenderPassDescriptor,
-    ShaderStage, ShaderStages, Swapchain, TextureFormat,
+    Device, GraphicsPipelineDescriptor, ImageLayout, LoadOp, PrimitiveTopology, RenderPassDescriptor,
+    ShaderStage, ShaderStages, Swapchain,
     VertexAttribute, VertexBinding, VertexInputDescriptor, VertexInputRate, VertexFormat,
 };
 use winit::application::ApplicationHandler;
@@ -16,6 +16,8 @@ struct App {
     window: Option<Window>,
     device: Option<std::sync::Arc<dyn Device>>,
     swapchain: Option<Box<dyn Swapchain>>,
+    /// Per-image layout for swapchain (Undefined first use, PresentSrc after present).
+    swapchain_image_layouts: Option<Vec<ImageLayout>>,
     pipeline: Option<Box<dyn lume_rhi::GraphicsPipeline>>,
     vertex_buffer: Option<Box<dyn lume_rhi::Buffer>>,
     uniform_buffer: Option<Box<dyn lume_rhi::Buffer>>,
@@ -30,6 +32,7 @@ impl App {
             window: None,
             device: None,
             swapchain: None,
+            swapchain_image_layouts: None,
             pipeline: None,
             vertex_buffer: None,
             uniform_buffer: None,
@@ -53,7 +56,10 @@ impl App {
             Err(_) => return,
         };
         let image_index = frame.image_index;
+        let layouts = self.swapchain_image_layouts.as_mut().unwrap();
+        let old_layout = layouts[image_index as usize];
         let mut encoder = device.create_command_encoder();
+        encoder.pipeline_barrier_texture(frame.texture, old_layout, ImageLayout::ColorAttachment);
         {
             let mut pass = encoder.begin_render_pass(RenderPassDescriptor {
                 label: Some("main_pass"),
@@ -67,6 +73,7 @@ impl App {
                         b: 0.15,
                         a: 1.0,
                     }),
+                    initial_layout: Some(ImageLayout::ColorAttachment),
                 }],
                 depth_stencil_attachment: None,
             });
@@ -76,6 +83,8 @@ impl App {
             pass.draw(3, 1, 0, 0);
             pass.end();
         }
+        encoder.pipeline_barrier_texture(frame.texture, ImageLayout::ColorAttachment, ImageLayout::PresentSrc);
+        layouts[image_index as usize] = ImageLayout::PresentSrc;
         drop(frame);
         let cmd = encoder.finish();
         device
@@ -93,21 +102,28 @@ impl App {
 
 impl App {
     /// Create Vulkan device and swapchain after window is ready (avoids 0xC000041d on Windows).
+    /// Only runs when window has a valid size (after first Resized); avoids creating surface too early.
     fn init_vulkan(&mut self) {
         if self.device.is_some() {
             return;
         }
         let window = self.window.as_ref().expect("window must exist before init_vulkan");
         let size = window.inner_size();
+        let (w, h) = (size.width, size.height);
+        if w == 0 || h == 0 {
+            return;
+        }
         let width = size.width.max(1);
         let height = size.height.max(1);
         let device = lume_rhi::VulkanDevice::new_with_surface(window).expect("VulkanDevice::new_with_surface");
         let swapchain = device.create_swapchain((width, height)).expect("create_swapchain");
+        let swapchain_format = swapchain.format();
 
         let vertex_buffer = device.create_buffer(&lume_rhi::BufferDescriptor {
             label: Some("vertices"),
             size: 9 * 4,
-            usage: BufferUsage::Vertex,
+            usage: BufferUsage::VERTEX,
+            memory: lume_rhi::BufferMemoryPreference::HostVisible,
         });
         let vertices: [f32; 9] = [0.0, 0.6, 0.0, -0.6, -0.6, 0.0, 0.6, -0.6, 0.0];
         device
@@ -118,7 +134,8 @@ impl App {
         let uniform_buffer = device.create_buffer(&lume_rhi::BufferDescriptor {
             label: Some("ubo"),
             size: UBO_SIZE,
-            usage: BufferUsage::Uniform,
+            usage: BufferUsage::UNIFORM,
+            memory: lume_rhi::BufferMemoryPreference::HostVisible,
         });
         let color_data: [f32; 4] = [0.2, 0.8, 0.2, 1.0];
         device
@@ -158,7 +175,7 @@ impl App {
             primitive_topology: PrimitiveTopology::TriangleList,
             rasterization: Default::default(),
             color_targets: vec![ColorTargetState {
-                format: TextureFormat::Rgba8Unorm,
+                format: swapchain_format,
                 blend: None,
             }],
             depth_stencil: None,
@@ -175,6 +192,8 @@ impl App {
         self.sem_render = Some(device.create_semaphore());
         self.device = Some(device);
         self.swapchain = Some(swapchain);
+        let n = self.swapchain.as_ref().unwrap().image_count() as usize;
+        self.swapchain_image_layouts = Some(vec![ImageLayout::Undefined; n]);
         self.pipeline = Some(pipeline);
         self.vertex_buffer = Some(vertex_buffer);
         self.uniform_buffer = Some(uniform_buffer);
@@ -218,8 +237,17 @@ impl ApplicationHandler for App {
                 self.vertex_buffer = None;
                 self.pipeline = None;
                 self.swapchain = None;
+                self.swapchain_image_layouts = None;
                 self.device = None;
                 event_loop.exit();
+            }
+            WindowEvent::Resized(physical_size) => {
+                if physical_size.width > 0 && physical_size.height > 0 {
+                    self.init_vulkan();
+                    if let Some(ref w) = self.window {
+                        w.request_redraw();
+                    }
+                }
             }
             WindowEvent::RedrawRequested => {
                 self.init_vulkan();

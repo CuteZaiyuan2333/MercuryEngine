@@ -10,6 +10,7 @@ pub struct VulkanBuffer {
     pub memory: vk::DeviceMemory,
     pub size: u64,
     pub id: ResourceId,
+    pub host_visible: bool,
 }
 
 impl Drop for VulkanBuffer {
@@ -36,6 +37,9 @@ impl Buffer for VulkanBuffer {
     }
     fn size(&self) -> u64 {
         self.size
+    }
+    fn host_visible(&self) -> bool {
+        self.host_visible
     }
     fn as_any(&self) -> &dyn std::any::Any {
         self
