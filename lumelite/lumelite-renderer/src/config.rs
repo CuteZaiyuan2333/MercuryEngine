@@ -35,7 +35,7 @@ pub struct LumeliteConfig {
 impl Default for LumeliteConfig {
     fn default() -> Self {
         Self {
-            debug_show_gbuffer: true, // TODO: set false after fixing Light pass
+            debug_show_gbuffer: false,
             debug_clear_green: false, // swapchain verified OK
             debug_direct_triangle: false,
             max_point_lights: 8,

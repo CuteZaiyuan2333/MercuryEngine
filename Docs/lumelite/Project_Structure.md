@@ -66,12 +66,14 @@ lumelite-bridge/
 ├── Cargo.toml              # dependencies: render-api, lumelite-renderer, wgpu
 ├── src/
 │   ├── lib.rs              # 导出 LumelitePlugin（不定义 Extract 类型，使用 render-api）
-│   └── plugin.rs           # LumelitePlugin::new(device, queue) / new_with_config, prepare, render_frame, render_frame_to_swapchain
+│   ├── plugin.rs           # LumelitePlugin::new(device, queue) / new_with_config, prepare, render_frame, render_frame_to_swapchain
+│   └── window_backend.rs   # LumeliteWindowBackend, from_window, RenderBackendWindow
 ```
 
 - **职责**：实现 **render_api::RenderBackend**，与 Lume 的 **类型与 API 一致**（Extract 类型来自 render-api）；内部使用 wgpu 与 lumelite-renderer（GBuffer + Light Pass）。
 - **prepare**：遍历 `ExtractedMeshes`，创建或复用 wgpu Buffer（顶点/索引），写入 mesh_cache 供 render_frame 使用。
 - **render_frame**：根据 `ExtractedView` 与 mesh_cache 构建 MeshDraw，执行 GBuffer Pass → Light Pass，内部 submit。**render_frame_to_swapchain**：同上并 Present 到给定 swapchain view。
+- **后端无关窗口输出**：`LumeliteWindowBackend::from_window(window)` 返回 `Box<dyn RenderBackendWindow>`，实现 `render_api::RenderBackendWindow`；宿主可仅依赖 render-api 与 raw 句柄调用 `render_frame_to_window`，无需直接使用 wgpu。详见 [Backend_Agnostic_Analysis.md](Backend_Agnostic_Analysis.md)。
 
 ## 5. debug/（示例与调试）
 

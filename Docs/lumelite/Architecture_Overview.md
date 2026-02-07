@@ -11,7 +11,7 @@ Lumelite 是 **Lume 的轻量兼容子集**，作为 MercuryEngine 的**基础�
 **技术选型（与 Lume 分叉）**：
 
 - **RHI**：**wgpu**（Rust 的 `wgpu` crate），**不使用** Vulkan/Metal 直连或 Lume 的 `lume-rhi`。着色器使用 **WGSL**。
-- **光照**：Deferred 光照算法（GBuffer + 多光源 Light Pass、Lambert + GGX/Schlick/Smith、方向/点/聚/天光）。详见 [Flax_Lighting_Analysis.md](Flax_Lighting_Analysis.md)。
+- **光照**：Deferred 光照算法（GBuffer + 多光源 Light Pass、Lambert + GGX/Schlick/Smith、方向/点/聚/天光）。
 
 **目标**：
 
@@ -57,7 +57,7 @@ Lumelite 是 **Lume 的轻量兼容子集**，作为 MercuryEngine 的**基础�
 - **光照管线**：
   - **Shadow Pass**：方向光视角深度渲染至 shadow map；`LumeliteConfig::shadow_enabled` 控制；单 cascade。
   - **GBuffer Pass**：多 RT（Color+AO、Normal+ShadingModel、Roughness/Metalness/Specular、CustomData）+ Depth；view_proj uniform 复用。
-  - **Light Pass**：方向光全屏；点光、聚光全屏 + 距离/锥体衰减；加性混合；BRDF 为 Lambert + GGX/Schlick/Smith；ExtractedView.point_lights、spot_lights。详见 [Flax_Lighting_Analysis.md](Flax_Lighting_Analysis.md)。
+  - **Light Pass**：方向光全屏；点光、聚光全屏 + 距离/锥体衰减；加性混合；BRDF 为 Lambert + GGX/Schlick/Smith；ExtractedView.point_lights、spot_lights。
 - **移除或占位**：virtual_geom、gi 不实现。
 
 ### 2.3 Mercury Bridge（与 Lume 接口一致）
@@ -81,4 +81,4 @@ Lumelite 是 **Lume 的轻量兼容子集**，作为 MercuryEngine 的**基础�
 ## 4. 可行性评估
 
 **可行性：高**。  
-延迟光照算法与管线与图形 API 解耦，可在 WGSL + wgpu 中完整实现；与 Lume 在 Bridge 与数据流上的兼容保留，仅 RHI 层改为 wgpu。详见 [Flax_Lighting_Analysis.md](Flax_Lighting_Analysis.md)。
+延迟光照算法与管线与图形 API 解耦，可在 WGSL + wgpu 中完整实现；与 Lume 在 Bridge 与数据流上的兼容保留，仅 RHI 层改为 wgpu。
