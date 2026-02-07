@@ -31,8 +31,8 @@ Lumelite 是 **Lume 的轻量兼容子集**，作为 MercuryEngine 的**基础�
 ┌─────────────────────────────────────────────────────────────────┐
 │  Lumelite Renderer                                                │
 │  • Render Graph：Pass 依赖、资源生命周期（概念与 Lume 一致）      │
-│  • GBuffer Pass → Light Pass（多光源、加性混合）                  │
-│  • 无 virtual_geom、无 gi 模块                                    │
+│  • Shadow Pass → GBuffer Pass → Light Pass（多光源、加性混合）→ Present │
+│  • 点光/聚光、Shadow Map（单 cascade）、uniform 复用；无 VG/GI    │
 └─────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
@@ -55,8 +55,9 @@ Lumelite 是 **Lume 的轻量兼容子集**，作为 MercuryEngine 的**基础�
   - **Render Graph**：`lumelite-renderer` 的 `graph` 模块提供 RenderGraph、RenderGraphNode 等概念型实现，用于资源依赖与拓扑排序。当前主渲染路径（encode_frame）仍按固定顺序直接调用 GBuffer → Light → Present，未接入 Render Graph。Render Graph 预留供后续扩展使用。
   - **Renderer**：对外仍可暴露 `render_frame()` 等入口，返回由 wgpu 录制的命令（或直接在本进程内 submit）。
 - **光照管线**：
-  - **GBuffer Pass**：多 RT（Color+AO、Normal+ShadingModel、Roughness/Metalness/Specular、CustomData）+ Depth。
-  - **Light Pass**：方向光全屏、点/聚/天光用球体 mesh，加性混合；BRDF 为 Lambert + GGX/Schlick/Smith；光源数据结构（LightData）与 GBuffer 布局约定一致。详见 [Flax_Lighting_Analysis.md](Flax_Lighting_Analysis.md)。
+  - **Shadow Pass**：方向光视角深度渲染至 shadow map；`LumeliteConfig::shadow_enabled` 控制；单 cascade。
+  - **GBuffer Pass**：多 RT（Color+AO、Normal+ShadingModel、Roughness/Metalness/Specular、CustomData）+ Depth；view_proj uniform 复用。
+  - **Light Pass**：方向光全屏；点光、聚光全屏 + 距离/锥体衰减；加性混合；BRDF 为 Lambert + GGX/Schlick/Smith；ExtractedView.point_lights、spot_lights。详见 [Flax_Lighting_Analysis.md](Flax_Lighting_Analysis.md)。
 - **移除或占位**：virtual_geom、gi 不实现。
 
 ### 2.3 Mercury Bridge（与 Lume 接口一致）

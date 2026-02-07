@@ -36,7 +36,7 @@
 |------|------|
 | `ExtractedMesh` | entity_id, vertex_data, index_data, transform, visible |
 | `ExtractedMeshes` | meshes: HashMap<u64, ExtractedMesh> |
-| `ExtractedView` | view_proj, viewport_size, directional_light（可选） |
+| `ExtractedView` | view_proj, viewport_size, directional_light（可选）, point_lights, spot_lights, sky_light |
 | `RenderBackend` | trait: `prepare(&mut self, &ExtractedMeshes)`, `render_frame(&mut self, &ExtractedView) -> Result<(), String>` |
 
 ## 3. 宿主代码形态
@@ -76,7 +76,7 @@ backend.render_frame_to_window(&view, raw_window_handle, raw_display_handle)?;
 ## 4. 示例
 
 - **plugin_loop**（`debug`）：仅用 render-api 与 LumelitePlugin，演示 `prepare` + `render_frame` 一帧（离屏）。运行：在仓库根目录 `cargo run -p debug --bin plugin_loop`，或 `cd debug && cargo run --bin plugin_loop`。
-- **gbuffer_light_window**（`debug`）：使用 LumeliteWindowBackend（后端无关），窗口 + 每帧 `prepare` + `render_frame_to_window`（内部处理 swapchain）。运行：在仓库根目录 `cargo run -p debug --bin gbuffer_light_window`，或 `cd debug && cargo run --bin gbuffer_light_window`。
+- **gbuffer_light_window**（`debug`）：使用 LumeliteWindowBackend（后端无关），窗口 + 每帧 `prepare` + `render_frame_to_window`；Surface 缓存复用，处理 SurfaceError::Outdated/Lost。运行：在仓库根目录 `cargo run -p debug --bin gbuffer_light_window`，或 `cd debug && cargo run --bin gbuffer_light_window`。
 
 宿主若希望“编译期或运行时选择 Lume 或 Lumelite”，可依赖 render-api 与可选 feature（如 `lume` / `lumelite`），根据配置构造对应 Plugin 并持有一个 `Box<dyn RenderBackend>` 或枚举，每帧调用同一套 `prepare` / `render_frame` 即可。
 

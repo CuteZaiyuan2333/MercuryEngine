@@ -33,6 +33,9 @@ fn main() -> Result<(), String> {
         view_proj: identity,
         viewport_size: (800, 600),
         directional_light: None,
+        point_lights: Vec::new(),
+        spot_lights: Vec::new(),
+        sky_light: None,
     };
 
     backend.prepare(&extracted);

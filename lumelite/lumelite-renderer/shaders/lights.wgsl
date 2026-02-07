@@ -67,7 +67,8 @@ fn GetSpecularColor(color: vec3<f32>, specular: f32, metalness: f32) -> vec3<f32
     let g1 = textureSample(gbuffer1, gbuffer_sampler, in.uv);
     let g2 = textureSample(gbuffer2, gbuffer_sampler, in.uv);
     let dims = vec2<f32>(textureDimensions(depth_tex));
-    let depth_val = textureLoad(depth_tex, vec2<i32>(in.uv * dims), 0);
+    let pix = vec2<i32>(min(floor(in.uv * dims), dims - vec2<f32>(1.0, 1.0)));
+    let depth_val = textureLoad(depth_tex, pix, 0);
     if depth_val >= 1.0 { return vec4<f32>(0.0, 0.0, 0.0, 0.0); }
 
     let n = decode_normal(g1.rgb);
@@ -85,7 +86,8 @@ fn GetSpecularColor(color: vec3<f32>, specular: f32, metalness: f32) -> vec3<f32
     let camera_pos = cam_col.xyz / cam_col.w;
     let v = normalize(camera_pos - world_pos);
 
-    let l = normalize(light.direction);
+    // direction = where light shines (from light toward scene); l = toward light (from surface)
+    let l = -normalize(light.direction);
     let n_dot_l = max(dot(n, l), 0.0);
     let n_dot_v = max(dot(n, v), 1e-5);
     let h = normalize(v + l);
@@ -105,6 +107,141 @@ fn GetSpecularColor(color: vec3<f32>, specular: f32, metalness: f32) -> vec3<f32
     let Vis = Vis_SmithJointApprox(roughness, n_dot_v, n_dot_l);
     let F = F_Schlick(specular_color, v_dot_h);
     lit += (D * Vis) * F * light.color * n_dot_l;
+
+    return vec4<f32>(lit, 1.0);
+}
+
+// Point light: fullscreen, attenuation by distance
+struct PointLightUniform {
+    position: vec3<f32>,
+    _pad0: f32,
+    color: vec3<f32>,
+    _pad1: f32,
+    radius: f32,
+    falloff_exponent: f32,
+    _pad2: vec2<f32>,
+    inv_view_proj: mat4x4<f32>,
+}
+@group(0) @binding(5) var<uniform> point_light: PointLightUniform;
+
+fn GetRadialLightAttenuation(dist: f32, radius: f32, falloff: f32) -> f32 {
+    let t = 1.0 - clamp(dist / radius, 0.0, 1.0);
+    return pow(t, falloff);
+}
+
+@fragment fn fs_point(in: VertexOutput) -> @location(0) vec4<f32> {
+    let g0 = textureSample(gbuffer0, gbuffer_sampler, in.uv);
+    let g1 = textureSample(gbuffer1, gbuffer_sampler, in.uv);
+    let g2 = textureSample(gbuffer2, gbuffer_sampler, in.uv);
+    let dims = vec2<f32>(textureDimensions(depth_tex));
+    let pix = vec2<i32>(min(floor(in.uv * dims), dims - vec2<f32>(1.0, 1.0)));
+    let depth_val = textureLoad(depth_tex, pix, 0);
+    if depth_val >= 1.0 { return vec4<f32>(0.0, 0.0, 0.0, 0.0); }
+
+    let n = decode_normal(g1.rgb);
+    let roughness = max(g2.r, 0.04);
+    let metalness = g2.g;
+    let specular_val = g2.b;
+    let base_color = g0.rgb;
+    let ao = g0.a;
+
+    let ndc = vec4<f32>(in.uv.x * 2.0 - 1.0, 1.0 - in.uv.y * 2.0, depth_val, 1.0);
+    let world_h = point_light.inv_view_proj * ndc;
+    let world_pos = world_h.xyz / world_h.w;
+    let cam_col = point_light.inv_view_proj * vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    let camera_pos = cam_col.xyz / cam_col.w;
+    let v = normalize(camera_pos - world_pos);
+
+    let to_light = point_light.position - world_pos;
+    let dist = length(to_light);
+    let l = normalize(to_light);
+    let attenuation = GetRadialLightAttenuation(dist, point_light.radius, point_light.falloff_exponent);
+    if attenuation <= 0.0 { return vec4<f32>(0.0, 0.0, 0.0, 0.0); }
+
+    let n_dot_l = max(dot(n, l), 0.0);
+    let n_dot_v = max(dot(n, v), 1e-5);
+    let h = normalize(v + l);
+    let n_dot_h = max(dot(n, h), 0.0);
+    let v_dot_h = max(dot(v, h), 0.0);
+
+    let diffuse_color = GetDiffuseColor(base_color, metalness);
+    let specular_color = GetSpecularColor(base_color, specular_val, metalness);
+
+    var lit = Diffuse_Lambert(diffuse_color) * point_light.color * n_dot_l * ao * attenuation;
+    let D = D_GGX(roughness, n_dot_h);
+    let Vis = Vis_SmithJointApprox(roughness, n_dot_v, n_dot_l);
+    let F = F_Schlick(specular_color, v_dot_h);
+    lit += (D * Vis) * F * point_light.color * n_dot_l * attenuation;
+
+    return vec4<f32>(lit, 1.0);
+}
+
+// Spot light: fullscreen, attenuation by distance + cone
+struct SpotLightUniform {
+    position: vec3<f32>,
+    _pad0: f32,
+    direction: vec3<f32>,
+    _pad1: f32,
+    color: vec3<f32>,
+    _pad2: f32,
+    radius: f32,
+    inner_cos: f32,
+    outer_cos: f32,
+    _pad3: f32,
+    inv_view_proj: mat4x4<f32>,
+}
+@group(0) @binding(5) var<uniform> spot_light: SpotLightUniform;
+
+fn GetSpotConeAttenuation(l_dir: vec3<f32>, spot_dir: vec3<f32>, inner_cos: f32, outer_cos: f32) -> f32 {
+    let cos_angle = dot(-l_dir, spot_dir);
+    return smoothstep(outer_cos, inner_cos, cos_angle);
+}
+
+@fragment fn fs_spot(in: VertexOutput) -> @location(0) vec4<f32> {
+    let g0 = textureSample(gbuffer0, gbuffer_sampler, in.uv);
+    let g1 = textureSample(gbuffer1, gbuffer_sampler, in.uv);
+    let g2 = textureSample(gbuffer2, gbuffer_sampler, in.uv);
+    let dims = vec2<f32>(textureDimensions(depth_tex));
+    let pix = vec2<i32>(min(floor(in.uv * dims), dims - vec2<f32>(1.0, 1.0)));
+    let depth_val = textureLoad(depth_tex, pix, 0);
+    if depth_val >= 1.0 { return vec4<f32>(0.0, 0.0, 0.0, 0.0); }
+
+    let n = decode_normal(g1.rgb);
+    let roughness = max(g2.r, 0.04);
+    let metalness = g2.g;
+    let specular_val = g2.b;
+    let base_color = g0.rgb;
+    let ao = g0.a;
+
+    let ndc = vec4<f32>(in.uv.x * 2.0 - 1.0, 1.0 - in.uv.y * 2.0, depth_val, 1.0);
+    let world_h = spot_light.inv_view_proj * ndc;
+    let world_pos = world_h.xyz / world_h.w;
+    let cam_col = spot_light.inv_view_proj * vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    let camera_pos = cam_col.xyz / cam_col.w;
+    let v = normalize(camera_pos - world_pos);
+
+    let to_light = spot_light.position - world_pos;
+    let dist = length(to_light);
+    let l = normalize(to_light);
+    let radial_atten = GetRadialLightAttenuation(dist, spot_light.radius, 2.0);
+    let cone_atten = GetSpotConeAttenuation(l, spot_light.direction, spot_light.inner_cos, spot_light.outer_cos);
+    let attenuation = radial_atten * cone_atten;
+    if attenuation <= 0.0 { return vec4<f32>(0.0, 0.0, 0.0, 0.0); }
+
+    let n_dot_l = max(dot(n, l), 0.0);
+    let n_dot_v = max(dot(n, v), 1e-5);
+    let h = normalize(v + l);
+    let n_dot_h = max(dot(n, h), 0.0);
+    let v_dot_h = max(dot(v, h), 0.0);
+
+    let diffuse_color = GetDiffuseColor(base_color, metalness);
+    let specular_color = GetSpecularColor(base_color, specular_val, metalness);
+
+    var lit = Diffuse_Lambert(diffuse_color) * spot_light.color * n_dot_l * ao * attenuation;
+    let D = D_GGX(roughness, n_dot_h);
+    let Vis = Vis_SmithJointApprox(roughness, n_dot_v, n_dot_l);
+    let F = F_Schlick(specular_color, v_dot_h);
+    lit += (D * Vis) * F * spot_light.color * n_dot_l * attenuation;
 
     return vec4<f32>(lit, 1.0);
 }

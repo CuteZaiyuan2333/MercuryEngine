@@ -4,6 +4,68 @@ use std::sync::Arc;
 use render_api::{ExtractedMeshes, ExtractedView, RenderBackend};
 use lumelite_renderer::{LumeliteConfig, MeshDraw, Renderer};
 
+/// Build orthographic projection (column-major): left, right, bottom, top, near, far.
+fn ortho(left: f32, right: f32, bottom: f32, top: f32, near: f32, far: f32) -> [f32; 16] {
+    let sx = 2.0 / (right - left);
+    let sy = 2.0 / (top - bottom);
+    let sz = -2.0 / (far - near);
+    let tx = -(right + left) / (right - left);
+    let ty = -(top + bottom) / (top - bottom);
+    let tz = -(far + near) / (far - near);
+    [
+        sx, 0.0, 0.0, 0.0,
+        0.0, sy, 0.0, 0.0,
+        0.0, 0.0, sz, 0.0,
+        tx, ty, tz, 1.0,
+    ]
+}
+
+fn look_at(eye: [f32; 3], center: [f32; 3], up: [f32; 3]) -> [f32; 16] {
+    let f = [center[0] - eye[0], center[1] - eye[1], center[2] - eye[2]];
+    let len_f = (f[0] * f[0] + f[1] * f[1] + f[2] * f[2]).sqrt();
+    let f = [f[0] / len_f, f[1] / len_f, f[2] / len_f];
+    let s = [f[1] * up[2] - f[2] * up[1], f[2] * up[0] - f[0] * up[2], f[0] * up[1] - f[1] * up[0]];
+    let len_s = (s[0] * s[0] + s[1] * s[1] + s[2] * s[2]).sqrt();
+    let s = [s[0] / len_s, s[1] / len_s, s[2] / len_s];
+    let u = [s[1] * f[2] - s[2] * f[1], s[2] * f[0] - s[0] * f[2], s[0] * f[1] - s[1] * f[0]];
+    [
+        s[0], s[1], s[2], -(s[0] * eye[0] + s[1] * eye[1] + s[2] * eye[2]),
+        u[0], u[1], u[2], -(u[0] * eye[0] + u[1] * eye[1] + u[2] * eye[2]),
+        -f[0], -f[1], -f[2], f[0] * eye[0] + f[1] * eye[1] + f[2] * eye[2],
+        0.0, 0.0, 0.0, 1.0,
+    ]
+}
+
+fn mat4_mul(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] {
+    let mut c = [0.0f32; 16];
+    for col in 0..4 {
+        for row in 0..4 {
+            c[col * 4 + row] = a[row] * b[col * 4 + 0]
+                + a[4 + row] * b[col * 4 + 1]
+                + a[8 + row] * b[col * 4 + 2]
+                + a[12 + row] * b[col * 4 + 3];
+        }
+    }
+    c
+}
+
+/// Build light view-projection for shadow map (orthographic, directional light).
+fn build_light_view_proj(direction: [f32; 3]) -> [f32; 16] {
+    let dist = 20.0;
+    let dir = {
+        let len = (direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2]).sqrt();
+        if len > 1e-6 {
+            [direction[0] / len, direction[1] / len, direction[2] / len]
+        } else {
+            [0.0, -1.0, 0.0]
+        }
+    };
+    let eye = [-dir[0] * dist, -dir[1] * dist, -dir[2] * dist];
+    let view = look_at(eye, [0.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
+    let proj = ortho(-10.0, 10.0, -10.0, 10.0, 0.1, 50.0);
+    mat4_mul(&proj, &view)
+}
+
 /// Invert 4x4 matrix (column-major). Returns None if singular.
 fn invert_view_proj(m: &[f32; 16]) -> Option<[f32; 16]> {
     let mut inv = [0.0f32; 16];
@@ -165,6 +227,12 @@ impl LumelitePlugin {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("lumelite_plugin_frame"),
         });
+        let light_view_proj = if self.renderer.config().shadow_enabled {
+            let lvp = build_light_view_proj(directional_light.0);
+            Some(lvp)
+        } else {
+            None
+        };
         self.renderer.encode_frame(
             &mut encoder,
             width,
@@ -173,6 +241,9 @@ impl LumelitePlugin {
             &inv_view_proj,
             &meshes,
             directional_light,
+            &view.point_lights,
+            &view.spot_lights,
+            light_view_proj.as_ref(),
         )?;
         if let Some(sv) = swapchain_view {
             self.renderer.encode_present_to(&mut encoder, sv)?;

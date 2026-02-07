@@ -16,8 +16,10 @@ pub struct LumeliteConfig {
     pub max_point_lights: u32,
     /// Max spot lights (reserved for P1 extension).
     pub max_spot_lights: u32,
-    /// Enable shadow pass (P2; currently no-op).
+    /// Enable shadow pass (single cascade, directional light).
     pub shadow_enabled: bool,
+    /// Shadow map resolution (e.g. 1024).
+    pub shadow_resolution: u32,
     /// Tone mapping for present pass.
     pub tone_mapping: ToneMapping,
     /// Swapchain texture format for present (e.g. Rgba8Unorm or Bgra8Unorm).
@@ -30,6 +32,7 @@ impl Default for LumeliteConfig {
             max_point_lights: 8,
             max_spot_lights: 4,
             shadow_enabled: false,
+            shadow_resolution: 1024,
             tone_mapping: ToneMapping::default(),
             swapchain_format: wgpu::TextureFormat::Rgba8Unorm,
         }

@@ -10,10 +10,11 @@
 
 - **RHI**：直接使用 **wgpu**（无 lume-rhi），着色器为 **WGSL**。
 - **已实现**：
-  - **GBuffer Pass**：多 RT + Depth，输出供 Light Pass 使用。
-  - **Light Pass**：方向光全屏、延迟光照（Lambert + GGX/Schlick/Smith）。
-  - **Present Pass**：Light Buffer → 交换链或离屏目标，含色调映射。
-  - **Render Graph 概念**：Pass 依赖、资源生命周期、FrameResources（GBuffer、Light Buffer、Depth 等）。
+  - **GBuffer Pass**：多 RT + Depth，输出供 Light Pass 使用；view_proj uniform 复用。
+  - **Light Pass**：方向光全屏、点光、聚光；延迟光照（Lambert + GGX/Schlick/Smith）；加性混合；uniform 复用。
+  - **Present Pass**：Light Buffer → 交换链或离屏目标，含色调映射；uniform 复用。
+  - **Shadow Pass**：单 cascade 方向光阴影，`LumeliteConfig::shadow_enabled` 控制，分辨率可配置（`shadow_resolution`）。
+  - **Render Graph 概念**：Pass 依赖、资源生命周期、FrameResources（GBuffer、Light Buffer、Depth、可选 Shadow Map）。
 - **对外 API**：`Renderer::new_with_config(device, queue, config)`、`encode_frame(...)`、`encode_present_to(...)`、`ensure_frame_resources`、`submit` 等；支持 `MeshDraw`（vertex_buf、index_buf、index_count、transform）。
 
 ### 1.2 lumelite-bridge
@@ -30,11 +31,11 @@
 
 - **minimal_wgpu**：无窗口，最小 wgpu 初始化（request_adapter、request_device），验证 wgpu 可用。运行：在仓库根目录 `cargo run -p debug --bin minimal_wgpu`，或 `cd debug && cargo run --bin minimal_wgpu`。
 - **plugin_loop**：使用 `render_api::RenderBackend` + `LumelitePlugin`，单帧 `prepare(ExtractedMeshes)` + `render_frame(ExtractedView)` 离屏闭环，验证 Bridge 与 Renderer 联动。运行：在仓库根目录 `cargo run -p debug --bin plugin_loop`，或 `cd debug && cargo run --bin plugin_loop`。
-- **gbuffer_light_window**：使用 `LumeliteWindowBackend`（后端无关），窗口 + 每帧 `prepare` + `render_frame_to_window`（内部处理 swapchain），可看到 GBuffer + 方向光光照的三角形。运行：在仓库根目录 `cargo run -p debug --bin gbuffer_light_window`，或 `cd debug && cargo run --bin gbuffer_light_window`。
+- **gbuffer_light_window**：使用 `LumeliteWindowBackend`（后端无关），窗口 + 每帧 `prepare` + `render_frame_to_window`；透视投影 + Surface 缓存，可看到 GBuffer + 方向光光照的三角形。运行：在仓库根目录 `cargo run -p debug --bin gbuffer_light_window`，或 `cd debug && cargo run --bin gbuffer_light_window`。
 
 ### 1.4 render-api（仓库根目录）
 
-- **定义**：`ExtractedMesh`、`ExtractedMeshes`、`ExtractedView`、`RenderBackend` trait（`prepare`、`render_frame`）。
+- **定义**：`ExtractedMesh`、`ExtractedMeshes`、`ExtractedView`、`PointLight`、`SpotLight`、`SkyLight`、`RenderBackend` trait（`prepare`、`render_frame`）。
 - **用途**：宿主与 Lume/Lumelite 共用同一套类型与调用方式；lume-bridge 与 lumelite-bridge 均实现 `RenderBackend`，可互换。
 
 ---
@@ -54,20 +55,21 @@ Lumelite 与 Lume **平行**：不共用 RHI 或 Renderer 源码，仅通过 ren
 
 ## 3. 可选后续工作
 
-以下为在现有闭环基础上的增强，非必须：
+以下为在现有闭环基础上的增强，部分已完成：
 
-| 方向         | 说明 |
-|--------------|------|
-| 多光源       | 点光、聚光、天光等（lumelite-renderer 已有 Light Pass 结构，可扩展光源数据与着色器）。 |
-| Resize 处理  | 窗口缩放时 swapchain 与 FrameResources 的 resize/重建，避免 DEVICE_LOST。 |
-| 阴影         | 可选的 Shadow Map Pass（单光源、单 cascade）。 |
-| 示例独立化   | **已完成**：示例已迁移至仓库根目录 **debug/**，通过 path 依赖 lumelite-* 与 render-api 使用。 |
+| 方向         | 说明 | 状态 |
+|--------------|------|------|
+| 多光源       | 点光、聚光（ExtractedView.point_lights、spot_lights）；天光结构已预留 | 已实现 |
+| Resize 处理  | 窗口缩放时 swapchain 与 FrameResources 的 resize/重建；SurfaceError::Outdated/Lost 已处理 | 已实现 |
+| 阴影         | Shadow Map Pass（单 cascade、方向光）；`LumeliteConfig::shadow_enabled` | 已实现 |
+| Buffer 优化  | view_proj、light、tone uniform 复用；model 仍每 mesh 分配 | 部分完成 |
+| 示例独立化   | 示例已迁移至仓库根目录 **debug/**，通过 path 依赖 lumelite-* 与 render-api 使用 | 已完成 |
 
 ---
 
 ## 4. 小结
 
 - **lumelite-renderer**：基于 wgpu 的 GBuffer + Light + Present 管线已就绪。
-- **lumelite-bridge**：LumelitePlugin 完整实现 RenderBackend，prepare 与 render_frame（含 swapchain）闭环已完成。
+- **lumelite-bridge**：LumelitePlugin 完整实现 RenderBackend；LumeliteWindowBackend 缓存 Surface 每帧复用，处理 SurfaceError::Outdated/Lost；prepare 与 render_frame（含 swapchain）闭环已完成。
 - **示例**：位于 **debug/** 的 minimal_wgpu、plugin_loop、gbuffer_light_window 可验证从初始化到窗口渲染的完整流程。
 - **与 Lume**：通过 render-api 统一类型与 RenderBackend；Lumelite 为当前**完全可用**的后端，Lume 为**有良好基础、未完成闭环**的后端，两者可并行使用或切换。

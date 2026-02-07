@@ -724,6 +724,7 @@ name = "lumelite-renderer"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "render-api",
  "wgpu",
 ]
 

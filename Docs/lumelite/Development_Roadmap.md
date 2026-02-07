@@ -160,10 +160,11 @@
 
 ## 阶段六（可选）：扩展与优化
 
-- **多 Mesh / 多 Pass**：多个不透明物体、简单排序（如按材质）。
-- **简单相机**：从 ExtractedView 解析 view_proj/viewport，支持多相机（仅主视口）。
-- **基础阴影**：可选的 Shadow Map Pass（单光源、单 cascade），仍不涉及 VG/GI。
-- **性能**：Staging Buffer 复用、Descriptor 池复用、减少每帧分配。
+- **多 Mesh / 多 Pass**：多个不透明物体、简单排序（如按材质）。✅ 已支持多 Mesh。
+- **简单相机**：从 ExtractedView 解析 view_proj/viewport，支持多相机（仅主视口）。✅ 已支持。
+- **基础阴影**：Shadow Map Pass（单 cascade、方向光）。✅ 已实现；`LumeliteConfig::shadow_enabled` 控制。
+- **多光源**：点光、聚光。✅ 已实现；ExtractedView.point_lights、spot_lights。
+- **性能**：view_proj/light/tone uniform 复用。✅ 已完成；model 仍每 mesh 分配。
 
 ---
 

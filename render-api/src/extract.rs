@@ -25,6 +25,34 @@ pub struct ExtractedMeshes {
     pub meshes: HashMap<u64, ExtractedMesh>,
 }
 
+/// Point light: position, color, radius, falloff exponent for attenuation.
+#[derive(Clone, Debug, Default)]
+pub struct PointLight {
+    pub position: [f32; 3],
+    pub color: [f32; 3],
+    pub radius: f32,
+    pub falloff_exponent: f32,
+}
+
+/// Spot light: position, direction (unit vector), color, radius, inner/outer angles (radians).
+#[derive(Clone, Debug, Default)]
+pub struct SpotLight {
+    pub position: [f32; 3],
+    pub direction: [f32; 3],
+    pub color: [f32; 3],
+    pub radius: f32,
+    pub inner_angle: f32,
+    pub outer_angle: f32,
+}
+
+/// Sky light (simplified): direction, color, intensity.
+#[derive(Clone, Debug, Default)]
+pub struct SkyLight {
+    pub direction: [f32; 3],
+    pub color: [f32; 3],
+    pub intensity: f32,
+}
+
 /// View/camera data for the current frame.
 #[derive(Clone, Debug)]
 pub struct ExtractedView {
@@ -33,6 +61,12 @@ pub struct ExtractedView {
     /// Optional: main directional light. If None, Lumelite uses a default.
     /// (direction: unit vector, color: RGB)
     pub directional_light: Option<([f32; 3], [f32; 3])>,
+    /// Point lights (capped by LumeliteConfig::max_point_lights).
+    pub point_lights: Vec<PointLight>,
+    /// Spot lights (capped by LumeliteConfig::max_spot_lights).
+    pub spot_lights: Vec<SpotLight>,
+    /// Optional sky light.
+    pub sky_light: Option<SkyLight>,
 }
 
 impl Default for ExtractedView {
@@ -43,6 +77,9 @@ impl Default for ExtractedView {
             ],
             viewport_size: (800, 600),
             directional_light: None,
+            point_lights: Vec::new(),
+            spot_lights: Vec::new(),
+            sky_light: None,
         }
     }
 }

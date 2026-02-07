@@ -7,9 +7,11 @@ use wgpu::SurfaceTargetUnsafe;
 use crate::plugin::LumelitePlugin;
 use lumelite_renderer::LumeliteConfig;
 
-/// Backend that owns wgpu Instance + LumelitePlugin and can present to a window.
+/// Backend that owns wgpu Instance and LumelitePlugin; can present to a window.
 /// Created via `LumeliteWindowBackend::from_window(window)`; each frame use
 /// `render_frame_to_window(view, raw_window_handle, raw_display_handle)`.
+/// Surface is recreated each frame (wgpu::Surface lifetime tied to window; avoids
+/// transmute and platform-specific staleness when window is dragged/resized).
 pub struct LumeliteWindowBackend {
     instance: wgpu::Instance,
     plugin: LumelitePlugin,
@@ -60,12 +62,12 @@ impl LumeliteWindowBackend {
             .first()
             .copied()
             .unwrap_or(wgpu::TextureFormat::Rgba8Unorm);
-        drop(surface);
         let config = LumeliteConfig {
             swapchain_format: format,
             ..LumeliteConfig::default()
         };
         let plugin = LumelitePlugin::new_with_config(device, queue, config)?;
+        drop(surface);
         Ok(Self { instance, plugin })
     }
 
@@ -100,10 +102,6 @@ impl RenderBackendWindow for LumeliteWindowBackend {
         raw_window_handle: raw_window_handle::RawWindowHandle,
         raw_display_handle: raw_window_handle::RawDisplayHandle,
     ) -> Result<(), String> {
-        // Note: Surface is recreated each frame because wgpu::Surface has a lifetime parameter
-        // tied to the window; caching would require propagating that lifetime through
-        // RenderBackendWindow (e.g. Box<dyn RenderBackendWindow + 'window>), which would
-        // complicate the host API. Resize is still handled via configure() each frame.
         let target = SurfaceTargetUnsafe::RawHandle {
             raw_window_handle,
             raw_display_handle,
@@ -114,15 +112,26 @@ impl RenderBackendWindow for LumeliteWindowBackend {
                 .map_err(|e| e.to_string())?
         };
         let (width, height) = view.viewport_size;
-        surface.configure(
-            self.plugin.device(),
-            &Self::surface_config(
-                self.plugin.renderer().config().swapchain_format,
-                width.max(1),
-                height.max(1),
-            ),
+        let config = Self::surface_config(
+            self.plugin.renderer().config().swapchain_format,
+            width.max(1),
+            height.max(1),
         );
-        let frame = surface.get_current_texture().map_err(|e| e.to_string())?;
+        surface.configure(self.plugin.device(), &config);
+
+        let frame = match surface.get_current_texture() {
+            Ok(f) => f,
+            Err(wgpu::SurfaceError::Outdated) => {
+                surface.configure(self.plugin.device(), &config);
+                surface.get_current_texture().map_err(|e| e.to_string())?
+            }
+            Err(wgpu::SurfaceError::Lost) => {
+                surface.configure(self.plugin.device(), &config);
+                surface.get_current_texture().map_err(|e| e.to_string())?
+            }
+            Err(wgpu::SurfaceError::Timeout) => return Err("Surface get_current_texture timeout".to_string()),
+            Err(e) => return Err(e.to_string()),
+        };
         let viewport = frame.texture.create_view(&Default::default());
         self.plugin
             .render_frame_to_swapchain(view, &viewport)

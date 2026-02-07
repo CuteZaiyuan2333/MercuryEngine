@@ -17,6 +17,7 @@ pub struct MeshDraw {
 pub struct GBufferPass {
     pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
+    view_proj_buf: wgpu::Buffer,
 }
 
 impl GBufferPass {
@@ -81,18 +82,17 @@ impl GBufferPass {
             multiview: None,
             cache: None,
         });
-        Ok(Self { pipeline, bind_group_layout })
-    }
-
-    pub fn encode(&self, encoder: &mut CommandEncoder, device: &wgpu::Device, queue: &wgpu::Queue, frame: &crate::resources::FrameResources, meshes: &[MeshDraw], view_proj: &[f32; 16]) -> Result<(), String> {
-        let view_proj_bytes: &[u8] = bytemuck::cast_slice(view_proj);
         let view_proj_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("gbuffer_view_proj"),
             size: 64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        queue.write_buffer(&view_proj_buf, 0, view_proj_bytes);
+        Ok(Self { pipeline, bind_group_layout, view_proj_buf })
+    }
+
+    pub fn encode(&self, encoder: &mut CommandEncoder, device: &wgpu::Device, queue: &wgpu::Queue, frame: &crate::resources::FrameResources, meshes: &[MeshDraw], view_proj: &[f32; 16]) -> Result<(), String> {
+        queue.write_buffer(&self.view_proj_buf, 0, bytemuck::cast_slice(view_proj));
         let gbuffer0 = frame.gbuffer0_view();
         let gbuffer1 = frame.gbuffer1_view();
         let gbuffer2 = frame.gbuffer2_view();
@@ -127,7 +127,7 @@ impl GBufferPass {
                 label: Some("gbuffer_bind_group"),
                 layout: &self.bind_group_layout,
                 entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: view_proj_buf.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 0, resource: self.view_proj_buf.as_entire_binding() },
                     wgpu::BindGroupEntry { binding: 1, resource: model_buf.as_entire_binding() },
                 ],
             });

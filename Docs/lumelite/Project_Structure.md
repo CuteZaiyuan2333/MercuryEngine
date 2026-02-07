@@ -38,24 +38,26 @@ lumelite-renderer/
 │   │   └── mod.rs
 │   ├── present/            # Present Pass：Light Buffer → 交换链，色调映射
 │   │   └── mod.rs
-│   ├── resources/          # 纹理/缓冲创建与复用（GBuffer、Light Buffer、Depth 等）
+│   ├── resources/          # 纹理/缓冲创建与复用（GBuffer、Light Buffer、Depth、Shadow Map）
 │   │   └── mod.rs
-│   └── (可选) shadows/     # 简单阴影
+│   └── shadows/            # Shadow Map Pass：方向光深度渲染，单 cascade
 │       └── mod.rs
 ├── shaders/                # WGSL
 │   ├── gbuffer.wgsl        # GBuffer Pass：顶点/片段，多 RT 输出
-│   ├── lights.wgsl         # Light Pass：BRDF 与光照计算内联（Lambert、GGX、Schlick、Smith、方向光 fullscreen）
-│   └── present.wgsl        # Present Pass：Light Buffer 采样、色调映射（Reinhard/None）
+│   ├── lights.wgsl         # Light Pass：BRDF、方向光/点光/聚光（Lambert、GGX、Schlick、Smith）
+│   ├── present.wgsl        # Present Pass：Light Buffer 采样、色调映射（Reinhard/None）
+│   └── shadow.wgsl         # Shadow Pass：深度输出，光空间渲染
 ```
 
 ### 3.1 无 virtual_geom / gi
 
 - Lumelite 不实现虚拟几何体与全局光照；不保留对应模块，或仅保留空占位类型以便与 Lume 的命名空间对齐（可选）。
 
-### 3.2 GBuffer 与 Light Pass
+### 3.2 GBuffer、Light Pass 与 Shadow Pass
 
 - **GBuffer**：多 RT（Color+AO、Normal、Roughness/Metalness/Specular、CustomData）+ Depth；材质输出 Color、Normal、Roughness、Metalness、Specular、AO、ShadingModel、可选 CustomData。
-- **Light Pass**：每光源绑定 LightData；方向光全屏，点/聚/天光用球体 mesh；加性混合；BRDF 为 Lambert + GGX/Schlick/Smith。
+- **Light Pass**：方向光全屏；点光、聚光全屏 + 距离/锥体衰减；加性混合；BRDF 为 Lambert + GGX/Schlick/Smith；ExtractedView.point_lights、spot_lights。
+- **Shadow Pass**：方向光视角深度渲染至 shadow map；`LumeliteConfig::shadow_enabled`、`shadow_resolution`；单 cascade。
 
 ## 4. lumelite-bridge（对接层，与 Lume 接口一致）
 
@@ -94,7 +96,8 @@ debug/
 
 ## 7. 下一步行动建议
 
-1. **引入 wgpu**：在 lumelite-renderer / lumelite-bridge 中加入 `wgpu` 依赖，实现最小窗口 + 清屏或单三角形。
-2. **光照管线**：将 BRDF、光照计算、GBuffer、Lights 等在 WGSL 中实现，并实现 GBuffer Pass + Light Pass（先无阴影）。
-3. **实现 Bridge prepare**：ExtractedMeshes → wgpu Buffer，并接入 GBuffer 绘制。
-4. **打通一帧**：Extract → Prepare → render_frame（GBuffer → Light Pass）→ Queue::submit + present。
+1. ~~**引入 wgpu**~~：已完成。lumelite-renderer / lumelite-bridge 已使用 wgpu。
+2. ~~**光照管线**~~：已完成。GBuffer Pass + Light Pass（方向光/点光/聚光）+ Shadow Pass + Present。
+3. ~~**实现 Bridge prepare**~~：已完成。ExtractedMeshes → wgpu Buffer，mesh_cache 复用。
+4. ~~**打通一帧**~~：已完成。Extract → Prepare → render_frame（Shadow → GBuffer → Light → Present）→ submit + present。
+5. **可选**：Light Pass 采样 shadow map 实现 PCF 软阴影；天光实现；model buffer 复用优化。

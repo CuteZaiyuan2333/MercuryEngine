@@ -13,6 +13,7 @@ pub struct PresentPass {
     bind_group_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     tone_mapping: ToneMapping,
+    tone_uniform_buf: wgpu::Buffer,
 }
 
 impl PresentPass {
@@ -96,11 +97,18 @@ impl PresentPass {
             multiview: None,
             cache: None,
         });
+        let tone_uniform_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("present_tone_uniform"),
+            size: 4,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         Ok(Self {
             pipeline,
             bind_group_layout,
             sampler,
             tone_mapping,
+            tone_uniform_buf,
         })
     }
 
@@ -120,13 +128,7 @@ impl PresentPass {
         output_view: &wgpu::TextureView,
     ) -> Result<(), String> {
         let mode: u32 = self.tone_mode_u32();
-        let tone_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("present_tone_uniform"),
-            size: 4,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        queue.write_buffer(&tone_buf, 0, bytemuck::cast_slice(&[mode]));
+        queue.write_buffer(&self.tone_uniform_buf, 0, bytemuck::cast_slice(&[mode]));
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("present_bind_group"),
             layout: &self.bind_group_layout,
@@ -141,7 +143,7 @@ impl PresentPass {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: tone_buf.as_entire_binding(),
+                    resource: self.tone_uniform_buf.as_entire_binding(),
                 },
             ],
         });

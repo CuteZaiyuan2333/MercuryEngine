@@ -7,3 +7,4 @@ description = "Lumelite renderer: wgpu-based GBuffer + Flax-style Light Pass"
 [dependencies]
 wgpu = "23"
 bytemuck = { version = "1.14", features = ["derive"] }
+render-api = { path = "../../render-api" }

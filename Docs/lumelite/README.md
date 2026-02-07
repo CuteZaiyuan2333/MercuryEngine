@@ -20,5 +20,5 @@ Lumelite 是 **Lume 渲染引擎的轻量兼容子集**：与 Lume 接口兼容�
 - **代码位置**：Lumelite 源码位于仓库根目录下的 `lumelite/`（与 `lume/` 并列）。共享类型与后端 trait 位于根目录 `render-api/`。示例与调试程序位于根目录 `debug/`。
 - **技术选型**：**wgpu**（不使用 Vulkan/Metal 直连）；**延迟光照**（GBuffer + 多光源 Light Pass、Lambert + GGX/Schlick/Smith）。详见 [Flax_Lighting_Analysis.md](Flax_Lighting_Analysis.md)。
 - **与 Lume 的关系**：通过 **render-api** 与 **RenderBackend** 统一接口；宿主只依赖 render-api，可选用 Lume 或 Lumelite 实现，同一套 prepare/render_frame 调用。详见 [Backend_Switch.md](Backend_Switch.md)。
-- **ExtractedView**：支持可选 `directional_light`（主方向光 direction + color），宿主可配置方向光；None 时使用默认值。
-- **开发顺序建议**：引入 wgpu → 实现 GBuffer + Light Pass（WGSL）→ Bridge prepare/render_frame 闭环。
+- **ExtractedView**：支持 `directional_light`（可选）、`point_lights`、`spot_lights`、`sky_light`；宿主可配置多光源。
+- **当前能力**：方向光/点光/聚光、Shadow Map（单 cascade）、Surface 缓存、Resize 与 SurfaceError 处理、uniform 复用；gbuffer_light_window 透视投影 + 窗口流畅渲染。

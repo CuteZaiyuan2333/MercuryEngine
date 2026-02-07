@@ -12,7 +12,7 @@
 |------|------|--------|
 | `ExtractedMesh` | entity_id, vertex_data, index_data, transform, visible | 定义在 **render-api**，Lume 与 Lumelite 共用；Lumelite 使用 vertex_data/index_data/transform，visible 参与剔除。**transform** 为列主序 4x4 矩阵（与 WGSL `mat4x4<f32>` 一致） |
 | `ExtractedMeshes` | meshes: HashMap<u64, ExtractedMesh> | 一致 |
-| `ExtractedView` | view_proj, viewport_size, directional_light | 一致；**directional_light** 可选，主方向光 (direction, color)，None 时 Lumelite 使用默认值 |
+| `ExtractedView` | view_proj, viewport_size, directional_light, point_lights, spot_lights, sky_light | 一致；**directional_light** 可选；**point_lights**、**spot_lights** 为 `Vec`，Lumelite 按 `LumeliteConfig::max_*` 截断；**sky_light** 结构已预留 |
 
 **统一 API**：类型由仓库根目录 **render-api** crate 定义；lume-bridge 与 lumelite-bridge 均依赖 render-api 并实现 **RenderBackend** trait（`prepare`、`render_frame`）。宿主只依赖 render-api，可同一套 Extract 逻辑与同一套 prepare/render_frame 调用对接 Lume 或 Lumelite。详见 [Backend_Switch.md](Backend_Switch.md)。
 
@@ -45,7 +45,7 @@
 | 能力 | Lume | Lumelite |
 |------|------|----------|
 | Prepare 内容 | 计划：Mesh + 虚拟几何体资源 + GI 相关资源等；当前 prepare 为 TODO | 仅 Mesh → Vertex/Index Buffer 创建与缓存，已实现 |
-| render_frame 内容 | 计划：Render Graph 含 VG 裁剪、GI 追踪、前向/延迟等；当前仅执行空图并 submit | GBuffer Pass + Light Pass（方向光）+ Present，无 VG、无 GI |
+| render_frame 内容 | 计划：Render Graph 含 VG 裁剪、GI 追踪、前向/延迟等；当前仅执行空图并 submit | Shadow → GBuffer → Light Pass（方向光/点光/聚光）→ Present；无 VG、无 GI |
 | virtual_geom 模块 | 有占位（Cluster、VirtualGeometryManager 等） | lumelite-renderer 内为占位或空壳，不参与渲染 |
 | gi 模块 | 有占位（GiSystem、GlobalSdf、SurfaceCache 等） | lumelite-renderer 内为占位或空壳，不参与渲染 |
 
