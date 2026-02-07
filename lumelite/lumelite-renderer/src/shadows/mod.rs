@@ -56,7 +56,7 @@ impl ShadowPass {
                 module: &shader,
                 entry_point: Some("vs"),
                 buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: 24,
+                    array_stride: 32,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &[
                         wgpu::VertexAttribute {
@@ -68,6 +68,11 @@ impl ShadowPass {
                             offset: 12,
                             shader_location: 1,
                             format: wgpu::VertexFormat::Float32x3,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 24,
+                            shader_location: 2,
+                            format: wgpu::VertexFormat::Float32x2,
                         },
                     ],
                 }],

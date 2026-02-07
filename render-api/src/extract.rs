@@ -3,12 +3,40 @@
 
 use std::collections::HashMap;
 
+/// Vertex layout for mesh data. Lumelite only accepts PositionNormalUv.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum VertexFormat {
+    /// Position (12 bytes) + normal (12 bytes) = 24 bytes per vertex.
+    PositionNormal,
+    /// Position (12) + normal (12) + uv (8) = 32 bytes per vertex. Default for Lumelite.
+    #[default]
+    PositionNormalUv,
+}
+
+/// CPU-side texture data for cross-backend transfer. RGBA8 row-major.
+#[derive(Clone, Debug)]
+pub struct PbrTextureData {
+    pub data: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// PBR material data; all channels optional. Backends use defaults for missing channels.
+#[derive(Clone, Debug, Default)]
+pub struct ExtractedPbrMaterial {
+    pub base_color: Option<PbrTextureData>,
+    pub normal: Option<PbrTextureData>,
+    /// R = metallic, G = roughness. Single RGBA texture.
+    pub metallic_roughness: Option<PbrTextureData>,
+    pub ao: Option<PbrTextureData>,
+}
+
 /// Per-mesh instance data extracted from the main world.
 #[derive(Clone, Debug)]
 pub struct ExtractedMesh {
     /// Host-defined entity or instance id.
     pub entity_id: u64,
-    /// Vertex data (e.g. position + normal) in a format agreed with the pipeline.
+    /// Vertex data in format given by vertex_format (e.g. position+normal+uv for PositionNormalUv).
     pub vertex_data: Vec<u8>,
     /// Index data (u32 indices).
     pub index_data: Vec<u8>,
@@ -17,6 +45,26 @@ pub struct ExtractedMesh {
     pub transform: [f32; 16],
     /// Whether this instance is visible.
     pub visible: bool,
+    /// Vertex layout. Lumelite only accepts PositionNormalUv.
+    pub vertex_format: VertexFormat,
+    /// Optional PBR material. When None, Lumelite uses default (flat) material.
+    pub material: Option<ExtractedPbrMaterial>,
+}
+
+impl Default for ExtractedMesh {
+    fn default() -> Self {
+        Self {
+            entity_id: 0,
+            vertex_data: Vec::new(),
+            index_data: Vec::new(),
+            transform: [
+                1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+            ],
+            visible: true,
+            vertex_format: VertexFormat::default(),
+            material: None,
+        }
+    }
 }
 
 /// All extracted meshes for the current frame.

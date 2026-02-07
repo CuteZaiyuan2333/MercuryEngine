@@ -13,6 +13,8 @@ Lumelite 是 **Lume 渲染引擎的轻量兼容子集**：与 Lume 接口兼容�
 | [Current_Status.md](Current_Status.md) | 当前代码状态与相对路线图的缺口总结 |
 | [Backend_Switch.md](Backend_Switch.md) | **与 Lume 切换**：render-api、RenderBackend 统一接口及宿主用法 |
 | [Backend_Agnostic_Analysis.md](Backend_Agnostic_Analysis.md) | **后端无关渲染**：宿主只调 render-api、不直接调用 wgpu 的需求分析与实现路径 |
+| [PBR_Model_Viewer_Plan.md](PBR_Model_Viewer_Plan.md) | **PBR 模型查看器**：debug 下 pbr_model 示例规划、测试资源（OBJ+贴图）与实现路径 |
+| [Render_API_Coordination.md](Render_API_Coordination.md) | **Lume / Lumelite 协调**：围绕单一 render-api 的可切换架构与能力矩阵 |
 
 ## 快速参考
 

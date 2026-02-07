@@ -105,10 +105,11 @@ impl App {
         let identity: [f32; 16] = [
             1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
         ];
+        // PositionNormalUv: 8 f32 per vertex (pos3 + normal3 + uv2). uv = 0,0 for default.
         let vertex_data: Vec<u8> = bytemuck::cast_slice(&[
-            0.0f32, 0.5, 0.0, 0.0, 1.0, 0.0,
-            -0.5, -0.5, 0.0, 0.0, 1.0, 0.0,
-            0.5, -0.5, 0.0, 0.0, 1.0, 0.0,
+            0.0f32, 0.5, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0,
+            -0.5, -0.5, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0,
+            0.5, -0.5, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0,
         ]).to_vec();
         let index_data: Vec<u8> = bytemuck::cast_slice(&[0u32, 1u32, 2u32]).to_vec();
         Self {
@@ -193,6 +194,7 @@ impl ApplicationHandler for App {
                     index_data: self.index_data.clone(),
                     transform: self.identity,
                     visible: true,
+                    ..Default::default()
                 });
                 let extracted = ExtractedMeshes { meshes };
                 let view = ExtractedView {

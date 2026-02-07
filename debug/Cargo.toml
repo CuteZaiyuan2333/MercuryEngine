@@ -16,6 +16,10 @@ path = "src/bin/plugin_loop.rs"
 name = "gbuffer_light_window"
 path = "src/bin/gbuffer_light_window.rs"
 
+[[bin]]
+name = "pbr_model"
+path = "src/bin/pbr_model.rs"
+
 [dependencies]
 lumelite-renderer = { path = "../lumelite/lumelite-renderer" }
 lumelite-bridge = { path = "../lumelite/lumelite-bridge" }
@@ -25,3 +29,5 @@ pollster = "0.3"
 bytemuck = { version = "1.14", features = ["derive"] }
 winit = { version = "0.30", features = ["rwh_06"] }
 raw-window-handle = "0.6"
+tobj = "4"
+image = "0.25"

@@ -1,8 +1,9 @@
-// Shadow map pass: render depth from light view (orthographic).
+// Shadow map pass: stride 32 (position, normal, uv). Only position used.
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
+    @location(2) uv: vec2<f32>,
 }
 
 struct VertexOutput {

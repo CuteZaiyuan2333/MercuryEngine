@@ -1,8 +1,12 @@
 //! Lumelite plugin: implements RenderBackend for the host.
+//! Single PBR pipeline: vertices are 32-byte (position+normal+uv); material optional (default 1x1 textures).
 
 use std::sync::Arc;
-use render_api::{ExtractedMeshes, ExtractedView, RenderBackend};
-use lumelite_renderer::{LumeliteConfig, MeshDraw, Renderer};
+use render_api::{
+    ExtractedMesh, ExtractedMeshes, ExtractedPbrMaterial, ExtractedView, PbrTextureData,
+    RenderBackend,
+};
+use lumelite_renderer::{LumeliteConfig, MeshDraw, PbrTextureViews, Renderer};
 
 /// Build orthographic projection (column-major): left, right, bottom, top, near, far.
 fn ortho(left: f32, right: f32, bottom: f32, top: f32, near: f32, far: f32) -> [f32; 16] {
@@ -96,7 +100,108 @@ fn invert_view_proj(m: &[f32; 16]) -> Option<[f32; 16]> {
     Some(inv)
 }
 
-/// Cached GPU buffers and world transform for one mesh.
+/// Create a texture view from optional RGBA8 data or a 1x1 default pixel.
+fn create_texture_view(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    label: &str,
+    data: Option<&PbrTextureData>,
+    default_rgba: [u8; 4],
+) -> Arc<wgpu::TextureView> {
+    let (width, height, bytes) = match data {
+        Some(d) if !d.data.is_empty() && d.width > 0 && d.height > 0 => (d.width, d.height, d.data.as_slice()),
+        _ => (1u32, 1u32, default_rgba.as_slice()),
+    };
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(label),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        wgpu::ImageCopyTexture {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        bytes,
+        wgpu::ImageDataLayout {
+            offset: 0,
+            bytes_per_row: Some(width * 4),
+            rows_per_image: Some(height),
+        },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+    );
+    Arc::new(texture.create_view(&Default::default()))
+}
+
+/// Build PbrTextureViews from optional material or use defaults.
+fn material_to_views(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    material: Option<&ExtractedPbrMaterial>,
+    default_views: &PbrTextureViews,
+) -> PbrTextureViews {
+    let mat = match material {
+        Some(m) => m,
+        None => return default_views.clone(),
+    };
+    PbrTextureViews {
+        base_color: create_texture_view(
+            device,
+            queue,
+            "lumelite_base_color",
+            mat.base_color.as_ref(),
+            [255, 255, 255, 255],
+        ),
+        normal: create_texture_view(
+            device,
+            queue,
+            "lumelite_normal",
+            mat.normal.as_ref(),
+            [128, 128, 255, 255],
+        ),
+        metallic_roughness: create_texture_view(
+            device,
+            queue,
+            "lumelite_metallic_roughness",
+            mat.metallic_roughness.as_ref(),
+            [0, 128, 0, 0],
+        ),
+        ao: create_texture_view(
+            device,
+            queue,
+            "lumelite_ao",
+            mat.ao.as_ref(),
+            [255, 255, 255, 255],
+        ),
+    }
+}
+
+/// Create default 1x1 PBR texture views (white base, flat normal, 0 metal 0.5 rough, white AO).
+fn create_default_pbr_views(device: &wgpu::Device, queue: &wgpu::Queue) -> PbrTextureViews {
+    PbrTextureViews {
+        base_color: create_texture_view(device, queue, "lumelite_default_bc", None::<&PbrTextureData>, [255, 255, 255, 255]),
+        normal: create_texture_view(device, queue, "lumelite_default_n", None::<&PbrTextureData>, [128, 128, 255, 255]),
+        metallic_roughness: create_texture_view(device, queue, "lumelite_default_mr", None::<&PbrTextureData>, [0, 128, 0, 0]),
+        ao: create_texture_view(device, queue, "lumelite_default_ao", None::<&PbrTextureData>, [255, 255, 255, 255]),
+    }
+}
+
+/// Cached GPU buffers, transform, and PBR texture views for one mesh.
 struct CachedMesh {
     vertex_buf: Arc<wgpu::Buffer>,
     index_buf: Arc<wgpu::Buffer>,
@@ -104,13 +209,14 @@ struct CachedMesh {
     vertex_len: usize,
     index_len: usize,
     transform: [f32; 16],
+    pbr_textures: PbrTextureViews,
 }
 
 /// Lumelite plugin: owns the wgpu device/queue and renderer; implements RenderBackend.
 pub struct LumelitePlugin {
     renderer: Renderer,
-    /// Cache by entity_id. Updated in prepare() from ExtractedMeshes.
     mesh_cache: std::collections::HashMap<u64, CachedMesh>,
+    default_pbr_textures: PbrTextureViews,
 }
 
 impl LumelitePlugin {
@@ -122,7 +228,12 @@ impl LumelitePlugin {
     /// Create with config (swapchain format, max lights, shadow, tone mapping).
     pub fn new_with_config(device: wgpu::Device, queue: wgpu::Queue, config: LumeliteConfig) -> Result<Self, String> {
         let renderer = Renderer::new_with_config(device, queue, config)?;
-        Ok(Self { renderer, mesh_cache: std::collections::HashMap::new() })
+        let default_pbr_textures = create_default_pbr_views(renderer.device(), renderer.queue());
+        Ok(Self {
+            renderer,
+            mesh_cache: std::collections::HashMap::new(),
+            default_pbr_textures,
+        })
     }
 
     /// Access device/queue if the host needs them (e.g. for swapchain).
@@ -137,6 +248,29 @@ impl LumelitePlugin {
     }
 }
 
+impl LumelitePlugin {
+    /// Ensure vertex data is 32-byte stride (position+normal+uv). Pad 24-byte to 32 if needed.
+    fn vertex_data_32(&self, mesh: &ExtractedMesh) -> Vec<u8> {
+        let v = &mesh.vertex_data;
+        if v.is_empty() {
+            return Vec::new();
+        }
+        if v.len() % 32 == 0 {
+            return v.clone();
+        }
+        if v.len() % 24 == 0 {
+            let n = v.len() / 24;
+            let mut out = Vec::with_capacity(n * 32);
+            for i in 0..n {
+                out.extend_from_slice(&v[i * 24..(i + 1) * 24]);
+                out.extend_from_slice(&[0u8; 8]);
+            }
+            return out;
+        }
+        v.clone()
+    }
+}
+
 impl RenderBackend for LumelitePlugin {
     fn prepare(&mut self, extracted: &ExtractedMeshes) {
         let device = self.renderer.device();
@@ -148,14 +282,22 @@ impl RenderBackend for LumelitePlugin {
             if !mesh.visible || mesh.vertex_data.is_empty() || mesh.index_data.is_empty() {
                 continue;
             }
-            let vertex_len = mesh.vertex_data.len();
+            let vertex_data = self.vertex_data_32(mesh);
+            let vertex_len = vertex_data.len();
             let index_len = mesh.index_data.len();
             let index_count = (index_len / 4) as u32;
+            let pbr_textures = material_to_views(
+                device,
+                queue,
+                mesh.material.as_ref(),
+                &self.default_pbr_textures,
+            );
             if let Some(cached) = self.mesh_cache.get_mut(&entity_id) {
                 if cached.vertex_len == vertex_len && cached.index_len == index_len {
-                    queue.write_buffer(&cached.vertex_buf, 0, &mesh.vertex_data);
+                    queue.write_buffer(&cached.vertex_buf, 0, &vertex_data);
                     queue.write_buffer(&cached.index_buf, 0, &mesh.index_data);
                     cached.transform = mesh.transform;
+                    cached.pbr_textures = pbr_textures;
                     continue;
                 }
             }
@@ -165,7 +307,7 @@ impl RenderBackend for LumelitePlugin {
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
-            queue.write_buffer(&vertex_buf, 0, &mesh.vertex_data);
+            queue.write_buffer(&vertex_buf, 0, &vertex_data);
             let index_buf = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("lumelite_mesh_index"),
                 size: index_len as u64,
@@ -182,6 +324,7 @@ impl RenderBackend for LumelitePlugin {
                     vertex_len,
                     index_len,
                     transform: mesh.transform,
+                    pbr_textures,
                 },
             );
         }
@@ -215,6 +358,7 @@ impl LumelitePlugin {
                 index_buf: Arc::clone(&c.index_buf),
                 index_count: c.index_count,
                 transform: c.transform,
+                pbr_textures: c.pbr_textures.clone(),
             })
             .collect();
         let (width, height) = view.viewport_size;

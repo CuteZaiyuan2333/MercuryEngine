@@ -13,7 +13,7 @@ pub mod virtual_geom;
 
 pub use config::{LumeliteConfig, ToneMapping};
 pub use direct_triangle::DirectTrianglePass;
-pub use gbuffer::{GBufferPass, MeshDraw};
+pub use gbuffer::{GBufferPass, MeshDraw, PbrTextureViews};
 pub use graph::{NodeId, RenderGraph, RenderGraphNode, ResourceHandle, ResourceId, ResourceUsage, TextureBarrierHint};
 pub use light_pass::LightPass;
 pub use present::PresentPass;

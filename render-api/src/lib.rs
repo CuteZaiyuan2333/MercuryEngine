@@ -5,6 +5,9 @@
 mod extract;
 mod backend;
 
-pub use extract::{ExtractedMesh, ExtractedMeshes, ExtractedView, PointLight, SpotLight, SkyLight};
+pub use extract::{
+    ExtractedMesh, ExtractedMeshes, ExtractedPbrMaterial, ExtractedView, PbrTextureData, PointLight,
+    SpotLight, SkyLight, VertexFormat,
+};
 pub use backend::{RenderBackend, RenderBackendWindow};
 pub use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
