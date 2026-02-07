@@ -1,55 +1,56 @@
-//! GBuffer pass: fill 4 RTs + depth (Flax layout).
+//! Direct triangle pass: draw triangle to swapchain. Debug - bypass GBuffer/Light/Present.
+//! Step 1: uses vertex buffer + view_proj (same layout as GBuffer) to verify mesh renders.
 
-use std::sync::Arc;
 use wgpu::CommandEncoder;
 
-const GBUFFER_SHADER: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/shaders/gbuffer.wgsl"));
+use crate::gbuffer::MeshDraw;
 
-#[derive(Clone)]
-pub struct MeshDraw {
-    pub vertex_buf: Arc<wgpu::Buffer>,
-    pub index_buf: Arc<wgpu::Buffer>,
-    pub index_count: u32,
-    /// World transform (column-major 4x4). Use identity for model-space geometry.
-    pub transform: [f32; 16],
-}
+const SHADER: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/shaders/direct_triangle.wgsl"));
 
-pub struct GBufferPass {
+pub struct DirectTrianglePass {
     pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
     view_proj_buf: wgpu::Buffer,
 }
 
-impl GBufferPass {
-    pub fn new(device: &wgpu::Device, format_gbuffer: wgpu::TextureFormat, format_depth: wgpu::TextureFormat) -> Result<Self, String> {
+impl DirectTrianglePass {
+    pub fn new(device: &wgpu::Device, output_format: wgpu::TextureFormat) -> Result<Self, String> {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("gbuffer_shader"),
-            source: wgpu::ShaderSource::Wgsl(GBUFFER_SHADER.into()),
+            label: Some("direct_triangle_shader"),
+            source: wgpu::ShaderSource::Wgsl(SHADER.into()),
         });
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("gbuffer_bind_group_layout"),
+            label: Some("direct_triangle_bgl"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: std::num::NonZeroU64::new(64) },
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: std::num::NonZeroU64::new(64),
+                    },
                     count: None,
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
                     visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: std::num::NonZeroU64::new(64) },
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: std::num::NonZeroU64::new(64),
+                    },
                     count: None,
                 },
             ],
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("gbuffer_pipeline_layout"),
+            label: Some("direct_triangle_layout"),
             bind_group_layouts: &[&bind_group_layout],
             push_constant_ranges: &[],
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("gbuffer_pipeline"),
+            label: Some("direct_triangle"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
@@ -67,23 +68,17 @@ impl GBufferPass {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs"),
-                targets: &[Some(format_gbuffer.into()), Some(format_gbuffer.into()), Some(format_gbuffer.into()), Some(format_gbuffer.into())],
+                targets: &[Some(output_format.into())],
                 compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: format_depth,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::LessEqual, // LessEqual 避免 NDC z 边界精度问题
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
+            depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
             cache: None,
         });
         let view_proj_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("gbuffer_view_proj"),
+            label: Some("direct_triangle_view_proj"),
             size: 64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
@@ -91,43 +86,41 @@ impl GBufferPass {
         Ok(Self { pipeline, bind_group_layout, view_proj_buf })
     }
 
-    pub fn encode(&self, encoder: &mut CommandEncoder, device: &wgpu::Device, queue: &wgpu::Queue, frame: &crate::resources::FrameResources, meshes: &[MeshDraw], view_proj: &[f32; 16]) -> Result<(), String> {
+    pub fn encode(
+        &self,
+        encoder: &mut CommandEncoder,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        output_view: &wgpu::TextureView,
+        meshes: &[MeshDraw],
+        view_proj: &[f32; 16],
+    ) -> Result<(), String> {
         queue.write_buffer(&self.view_proj_buf, 0, bytemuck::cast_slice(view_proj));
-        let gbuffer0 = frame.gbuffer0_view();
-        let gbuffer1 = frame.gbuffer1_view();
-        let gbuffer2 = frame.gbuffer2_view();
-        let gbuffer3 = frame.gbuffer3_view();
-        let depth_view = frame.depth_view();
         let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("gbuffer_pass"),
-            color_attachments: &[
-                Some(wgpu::RenderPassColorAttachment { view: &gbuffer0, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store } }),
-                Some(wgpu::RenderPassColorAttachment { view: &gbuffer1, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store } }),
-                Some(wgpu::RenderPassColorAttachment { view: &gbuffer2, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color { r: 1.0, g: 0.0, b: 0.0, a: 0.0 }), store: wgpu::StoreOp::Store } }),
-                Some(wgpu::RenderPassColorAttachment { view: &gbuffer3, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store } }),
-            ],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &depth_view,
-                depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Store }),
-                stencil_ops: None,
-            }),
+            label: Some("direct_triangle"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: output_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
         });
         rp.set_pipeline(&self.pipeline);
-        let w = frame.width() as f32;
-        let h = frame.height() as f32;
-        rp.set_viewport(0.0, 0.0, w, h, 0.0, 1.0); // 显式 viewport，确保 depth 范围 [0,1]
         for mesh in meshes {
             let model_buf = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("gbuffer_model"),
+                label: Some("direct_triangle_model"),
                 size: 64,
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
             queue.write_buffer(&model_buf, 0, bytemuck::cast_slice(&mesh.transform));
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("gbuffer_bind_group"),
+                label: Some("direct_triangle_bg"),
                 layout: &self.bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry { binding: 0, resource: self.view_proj_buf.as_entire_binding() },

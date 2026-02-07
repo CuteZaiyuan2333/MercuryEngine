@@ -1,0 +1,6 @@
+{"id":"h_viewproj","timestamp":1770491659769,"location":"gbuffer_light_window.rs","message":"clip_vertex","data":{"clip_x":0,"clip_y":0.5,"clip_z":0.019019019,"clip_w":1,"ndc_z":0.019019019,"ok_xy":true,"ok_z":true,"in_ndc":true},"hypothesisId":"V1,V2,V4"}
+{"id":"h_prepare","timestamp":1770491659770,"location":"plugin.rs","message":"prepare","data":{"extracted_len":1,"visible_valid":1,"cache_before":0},"hypothesisId":"A,D"}
+{"id":"h_prepare_done","timestamp":1770491659776,"location":"plugin.rs","message":"prepare_done","data":{"cache_after":1},"hypothesisId":"A"}
+{"id":"h_app","timestamp":1770491659776,"location":"gbuffer_light_window.rs","message":"before_render","data":{"width":800,"height":600,"mesh_count":1},"hypothesisId":"A,B"}
+{"id":"h_plugin","timestamp":1770491659789,"location":"plugin.rs","message":"render_frame_impl","data":{"mesh_cache_len":1,"meshes_len":1,"viewport_w":800,"viewport_h":600,"debug_direct":false,"has_swapchain":true},"hypothesisId":"A,C,E"}
+{"id":"h_result","timestamp":1770491659803,"location":"gbuffer_light_window.rs","message":"render_result","data":{"ok":true},"hypothesisId":"D"}

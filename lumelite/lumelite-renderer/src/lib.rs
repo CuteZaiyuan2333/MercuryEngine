@@ -1,6 +1,7 @@
 //! Lumelite Renderer: wgpu-based GBuffer + Flax-style Light Pass + Present.
 
 pub mod config;
+pub mod direct_triangle;
 pub mod gbuffer;
 pub mod gi;
 pub mod graph;
@@ -11,6 +12,7 @@ pub mod shadows;
 pub mod virtual_geom;
 
 pub use config::{LumeliteConfig, ToneMapping};
+pub use direct_triangle::DirectTrianglePass;
 pub use gbuffer::{GBufferPass, MeshDraw};
 pub use graph::{NodeId, RenderGraph, RenderGraphNode, ResourceHandle, ResourceId, ResourceUsage, TextureBarrierHint};
 pub use light_pass::LightPass;
@@ -22,6 +24,7 @@ pub struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: LumeliteConfig,
+    direct_triangle_pass: DirectTrianglePass,
     gbuffer_pass: GBufferPass,
     light_pass: LightPass,
     present_pass: PresentPass,
@@ -35,6 +38,7 @@ impl Renderer {
     }
 
     pub fn new_with_config(device: wgpu::Device, queue: wgpu::Queue, config: LumeliteConfig) -> Result<Self, String> {
+        let direct_triangle_pass = DirectTrianglePass::new(&device, config.swapchain_format)?;
         let gbuffer_pass = GBufferPass::new(&device, wgpu::TextureFormat::Rgba8Unorm, wgpu::TextureFormat::Depth32Float)?;
         let light_pass = LightPass::new(&device, wgpu::TextureFormat::Rgba16Float)?;
         let present_pass = PresentPass::new(&device, config.swapchain_format, config.tone_mapping)?;
@@ -47,6 +51,7 @@ impl Renderer {
             device,
             queue,
             config,
+            direct_triangle_pass,
             gbuffer_pass,
             light_pass,
             present_pass,
@@ -75,6 +80,24 @@ impl Renderer {
 
     pub fn current_light_buffer(&self) -> Option<&wgpu::Texture> {
         self.frame_resources.as_ref().map(|f| &f.light_buffer)
+    }
+
+    /// Encode direct triangle to output view (debug path). Bypasses GBuffer/Light/Present.
+    pub fn encode_direct_triangle(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        output_view: &wgpu::TextureView,
+        meshes: &[MeshDraw],
+        view_proj: &[f32; 16],
+    ) -> Result<(), String> {
+        self.direct_triangle_pass.encode(
+            encoder,
+            &self.device,
+            &self.queue,
+            output_view,
+            meshes,
+            view_proj,
+        )
     }
 
     /// Encode GBuffer + Light pass into the given encoder. Call ensure_frame_resources (or render_frame) first so frame size is set.
@@ -125,18 +148,25 @@ impl Renderer {
     }
 
     /// Encode present pass: light buffer -> output view (e.g. swapchain). Requires encode_frame to have been called this frame.
+    /// When debug_show_gbuffer is true, presents GBuffer0 directly (bypasses Light pass for debugging).
     pub fn encode_present_to(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         output_view: &wgpu::TextureView,
     ) -> Result<(), String> {
         let frame = self.frame_resources.as_ref().ok_or("encode_present_to: no frame (call encode_frame first)")?;
+        let source = if self.config.debug_show_gbuffer {
+            frame.gbuffer0_view()
+        } else {
+            frame.light_buffer_view()
+        };
         self.present_pass.encode(
             encoder,
             &self.device,
             &self.queue,
-            &frame.light_buffer_view(),
+            &source,
             output_view,
+            self.config.debug_clear_green,
         )
     }
 

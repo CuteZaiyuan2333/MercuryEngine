@@ -9,8 +9,26 @@ use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::WindowId;
 
+/// Build orthographic projection (column-major, WebGPU NDC z in [0,1]).
+/// View space: -Z forward. Maps -near -> NDC 0, -far -> NDC 1.
+fn ortho_projection(left: f32, right: f32, bottom: f32, top: f32, near: f32, far: f32) -> [f32; 16] {
+    let sx = 2.0 / (right - left);
+    let sy = 2.0 / (top - bottom);
+    let sz = -1.0 / (far - near);  // -near->0, -far->1
+    let tx = -(right + left) / (right - left);
+    let ty = -(top + bottom) / (top - bottom);
+    let tz = -near / (far - near);
+    [
+        sx, 0.0, 0.0, 0.0,
+        0.0, sy, 0.0, 0.0,
+        0.0, 0.0, sz, 0.0,
+        tx, ty, tz, 1.0,
+    ]
+}
+
 /// Build perspective projection matrix (column-major, WebGPU NDC z in [0,1]).
 /// View space: -Z forward, maps -near->NDC 0, -far->NDC 1.
+#[allow(dead_code)]
 fn perspective_projection(fov_y_rad: f32, aspect: f32, near: f32, far: f32) -> [f32; 16] {
     let t = (fov_y_rad / 2.0).tan();
     let sy = 1.0 / t;
@@ -46,12 +64,15 @@ fn look_at(eye: [f32; 3], center: [f32; 3], up: [f32; 3]) -> [f32; 16] {
         s[2] * f[0] - s[0] * f[2],
         s[0] * f[1] - s[1] * f[0],
     ];
-    // View matrix (column-major): right, up, -forward, translation
+    let tx = -(s[0] * eye[0] + s[1] * eye[1] + s[2] * eye[2]);
+    let ty = -(u[0] * eye[0] + u[1] * eye[1] + u[2] * eye[2]);
+    let tz = f[0] * eye[0] + f[1] * eye[1] + f[2] * eye[2];
+    // Column-major: col0=(s,0), col1=(u,0), col2=(-f,0), col3=(tx,ty,tz,1)
     [
-        s[0], s[1], s[2], -(s[0] * eye[0] + s[1] * eye[1] + s[2] * eye[2]),
-        u[0], u[1], u[2], -(u[0] * eye[0] + u[1] * eye[1] + u[2] * eye[2]),
-        -f[0], -f[1], -f[2], f[0] * eye[0] + f[1] * eye[1] + f[2] * eye[2],
-        0.0, 0.0, 0.0, 1.0,
+        s[0], u[0], -f[0], 0.0,
+        s[1], u[1], -f[1], 0.0,
+        s[2], u[2], -f[2], 0.0,
+        tx, ty, tz, 1.0,
     ]
 }
 
@@ -103,7 +124,8 @@ impl App {
     fn build_view_projection(&self) -> [f32; 16] {
         let (w, h) = self.size;
         let aspect = if h > 0 { w as f32 / h as f32 } else { 1.0 };
-        let proj = perspective_projection(std::f32::consts::FRAC_PI_4, aspect, 0.1, 100.0);
+        // Use ortho to isolate projection issues (triangle at z=0, view z=-2)
+        let proj = ortho_projection(-aspect, aspect, -1.0, 1.0, 0.1, 100.0);
         let view = look_at([0.0, 0.0, 2.0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
         mat4_mul(&proj, &view)
     }
@@ -186,6 +208,7 @@ impl ApplicationHandler for App {
                     None => return,
                 };
                 backend.prepare(&extracted);
+                window.pre_present_notify();
                 let _ = backend.render_frame_to_window(&view, raw_window, raw_display);
             }
             _ => {}

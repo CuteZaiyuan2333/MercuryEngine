@@ -126,7 +126,27 @@ impl PresentPass {
         queue: &wgpu::Queue,
         light_buffer_view: &wgpu::TextureView,
         output_view: &wgpu::TextureView,
+        debug_clear_green: bool,
     ) -> Result<(), String> {
+        if debug_clear_green {
+            // Minimal test: just clear to green (no draw) - verify swapchain displays
+            let rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("present_pass_debug_clear"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: output_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            drop(rp);
+            return Ok(());
+        }
         let mode: u32 = self.tone_mode_u32();
         queue.write_buffer(&self.tone_uniform_buf, 0, bytemuck::cast_slice(&[mode]));
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {

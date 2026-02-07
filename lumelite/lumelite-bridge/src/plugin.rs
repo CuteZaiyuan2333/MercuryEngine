@@ -233,20 +233,26 @@ impl LumelitePlugin {
         } else {
             None
         };
-        self.renderer.encode_frame(
-            &mut encoder,
-            width,
-            height,
-            &view.view_proj,
-            &inv_view_proj,
-            &meshes,
-            directional_light,
-            &view.point_lights,
-            &view.spot_lights,
-            light_view_proj.as_ref(),
-        )?;
-        if let Some(sv) = swapchain_view {
-            self.renderer.encode_present_to(&mut encoder, sv)?;
+        if self.renderer.config().debug_direct_triangle {
+            if let Some(sv) = swapchain_view {
+                self.renderer.encode_direct_triangle(&mut encoder, sv, &meshes, &view.view_proj)?;
+            }
+        } else {
+            self.renderer.encode_frame(
+                &mut encoder,
+                width,
+                height,
+                &view.view_proj,
+                &inv_view_proj,
+                &meshes,
+                directional_light,
+                &view.point_lights,
+                &view.spot_lights,
+                light_view_proj.as_ref(),
+            )?;
+            if let Some(sv) = swapchain_view {
+                self.renderer.encode_present_to(&mut encoder, sv)?;
+            }
         }
         let cmd = encoder.finish();
         self.renderer.submit([cmd]);

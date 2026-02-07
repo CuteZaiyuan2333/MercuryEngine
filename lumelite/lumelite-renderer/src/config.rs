@@ -12,6 +12,12 @@ pub enum ToneMapping {
 /// Lumelite renderer and bridge configuration.
 #[derive(Clone, Debug)]
 pub struct LumeliteConfig {
+    /// When true, present GBuffer0 directly (debug: bypass Light pass).
+    pub debug_show_gbuffer: bool,
+    /// When true, Present pass only clears to GREEN (no draw) - verify swapchain works.
+    pub debug_clear_green: bool,
+    /// When true, draw triangle directly to swapchain (bypass GBuffer/Light/Present).
+    pub debug_direct_triangle: bool,
     /// Max point lights (reserved for P1 extension).
     pub max_point_lights: u32,
     /// Max spot lights (reserved for P1 extension).
@@ -29,6 +35,9 @@ pub struct LumeliteConfig {
 impl Default for LumeliteConfig {
     fn default() -> Self {
         Self {
+            debug_show_gbuffer: true, // TODO: set false after fixing Light pass
+            debug_clear_green: false, // swapchain verified OK
+            debug_direct_triangle: false,
             max_point_lights: 8,
             max_spot_lights: 4,
             shadow_enabled: false,

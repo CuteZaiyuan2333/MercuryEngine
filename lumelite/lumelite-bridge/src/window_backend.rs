@@ -132,7 +132,11 @@ impl RenderBackendWindow for LumeliteWindowBackend {
             Err(wgpu::SurfaceError::Timeout) => return Err("Surface get_current_texture timeout".to_string()),
             Err(e) => return Err(e.to_string()),
         };
-        let viewport = frame.texture.create_view(&Default::default());
+        let swapchain_format = self.plugin.renderer().config().swapchain_format;
+        let viewport = frame.texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(swapchain_format.add_srgb_suffix()),
+            ..Default::default()
+        });
         self.plugin
             .render_frame_to_swapchain(view, &viewport)
             .map_err(|e| e.to_string())?;
