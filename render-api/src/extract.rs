@@ -1,5 +1,5 @@
-//! Data types for extraction from the host engine (e.g. MercuryEngine) into the render world.
-//! The host fills these each frame; Lume uses them in Prepare and the render graph.
+//! Data types for extraction from the host engine into the render world.
+//! Used by both Lume and Lumelite backends; host fills these each frame.
 
 use std::collections::HashMap;
 
@@ -12,7 +12,8 @@ pub struct ExtractedMesh {
     pub vertex_data: Vec<u8>,
     /// Index data (u32 indices).
     pub index_data: Vec<u8>,
-    /// World transform (4x4 row-major or column-major as agreed).
+    /// World transform: column-major 4x4 matrix (WGSL/wgpu convention).
+    /// Index [col*4+row]; e.g. m[0..4] is the first column.
     pub transform: [f32; 16],
     /// Whether this instance is visible.
     pub visible: bool,
@@ -29,4 +30,19 @@ pub struct ExtractedMeshes {
 pub struct ExtractedView {
     pub view_proj: [f32; 16],
     pub viewport_size: (u32, u32),
+    /// Optional: main directional light. If None, Lumelite uses a default.
+    /// (direction: unit vector, color: RGB)
+    pub directional_light: Option<([f32; 3], [f32; 3])>,
+}
+
+impl Default for ExtractedView {
+    fn default() -> Self {
+        Self {
+            view_proj: [
+                1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+            ],
+            viewport_size: (800, 600),
+            directional_light: None,
+        }
+    }
 }

@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = [
+    "lumelite-renderer",
+    "lumelite-bridge",
+]
+
+[workspace.dependencies]
+log = "0.4"
+env_logger = "0.11"

@@ -1,0 +1,12 @@
+[package]
+name = "lumelite-bridge"
+version = "0.1.0"
+edition = "2021"
+description = "Bridge: render-api types + RenderBackend impl for Lumelite"
+
+[dependencies]
+render-api = { path = "../../render-api" }
+lumelite-renderer = { path = "../lumelite-renderer" }
+wgpu = "23"
+raw-window-handle = "0.6"
+pollster = "0.3"

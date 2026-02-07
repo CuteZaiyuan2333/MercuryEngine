@@ -1,0 +1,9 @@
+[package]
+name = "lumelite-renderer"
+version = "0.1.0"
+edition = "2021"
+description = "Lumelite renderer: wgpu-based GBuffer + Flax-style Light Pass"
+
+[dependencies]
+wgpu = "23"
+bytemuck = { version = "1.14", features = ["derive"] }

@@ -1,0 +1,8 @@
+[package]
+name = "render-api"
+version = "0.1.0"
+edition = "2021"
+description = "Shared render backend API: Extract types and RenderBackend trait for Lume/Lumelite switching"
+
+[dependencies]
+raw-window-handle = "0.6"

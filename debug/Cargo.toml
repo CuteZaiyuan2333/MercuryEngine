@@ -1,0 +1,27 @@
+[package]
+name = "debug"
+version = "0.1.0"
+edition = "2021"
+description = "Debug/example programs for Lumelite (moved from lumelite-examples)"
+
+[[bin]]
+name = "minimal_wgpu"
+path = "src/bin/minimal_wgpu.rs"
+
+[[bin]]
+name = "plugin_loop"
+path = "src/bin/plugin_loop.rs"
+
+[[bin]]
+name = "gbuffer_light_window"
+path = "src/bin/gbuffer_light_window.rs"
+
+[dependencies]
+lumelite-renderer = { path = "../lumelite/lumelite-renderer" }
+lumelite-bridge = { path = "../lumelite/lumelite-bridge" }
+render-api = { path = "../render-api" }
+wgpu = "23"
+pollster = "0.3"
+bytemuck = { version = "1.14", features = ["derive"] }
+winit = { version = "0.30", features = ["rwh_06"] }
+raw-window-handle = "0.6"

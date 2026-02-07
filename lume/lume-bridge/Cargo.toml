@@ -7,3 +7,4 @@ description = "MercuryEngine integration for Lume (no Bevy/WGPU dependency)"
 [dependencies]
 lume-rhi = { path = "../lume-rhi" }
 lume-renderer = { path = "../lume-renderer" }
+render-api = { path = "../../render-api" }
