@@ -206,6 +206,57 @@ impl App {
         let view = look_at([2.0, 1.5, 2.0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
         mat4_mul(&proj, &view)
     }
+
+    /// 构建带合理光照的 ExtractedView：主平行光模拟太阳 + 点光模拟背景/环境光。
+    fn build_view(&self) -> ExtractedView {
+        let view_proj = self.build_view_projection();
+        let viewport_size = self.size;
+
+        // 主平行光：模拟太阳，从右上前方照向场景，方向为光照射方向（指向场景）
+        let sun_dir = normalize([-0.4f32, -0.88, -0.25]);
+        let sun_color = [1.15, 1.1, 1.0];
+        let directional_light = Some((sun_dir, sun_color));
+
+        // 背景/环境光：用若干弱强度、大半径点光模拟天空与环境反射，避免背光面全黑
+        let point_lights = vec![
+            render_api::PointLight {
+                position: [0.0, 4.0, 0.0],
+                color: [0.28, 0.32, 0.38],
+                radius: 18.0,
+                falloff_exponent: 2.0,
+            },
+            render_api::PointLight {
+                position: [-2.5, 1.0, 2.0],
+                color: [0.22, 0.25, 0.3],
+                radius: 14.0,
+                falloff_exponent: 2.0,
+            },
+            render_api::PointLight {
+                position: [2.0, 0.5, -1.5],
+                color: [0.18, 0.2, 0.24],
+                radius: 12.0,
+                falloff_exponent: 2.0,
+            },
+        ];
+
+        ExtractedView {
+            view_proj,
+            viewport_size,
+            directional_light,
+            point_lights,
+            spot_lights: Vec::new(),
+            sky_light: None,
+        }
+    }
+}
+
+fn normalize(v: [f32; 3]) -> [f32; 3] {
+    let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    if len > 1e-6 {
+        [v[0] / len, v[1] / len, v[2] / len]
+    } else {
+        [0.0, -1.0, 0.0]
+    }
 }
 
 impl ApplicationHandler for App {
@@ -261,14 +312,7 @@ impl ApplicationHandler for App {
                     (Ok(wh), Ok(dh)) => (wh.as_raw(), dh.as_raw()),
                     _ => return,
                 };
-                let view = ExtractedView {
-                    view_proj: self.build_view_projection(),
-                    viewport_size: self.size,
-                    directional_light: Some(([0.3, -0.8, 0.5], [1.0, 1.0, 1.0])),
-                    point_lights: Vec::new(),
-                    spot_lights: Vec::new(),
-                    sky_light: None,
-                };
+                let view = self.build_view();
                 if let Some(backend) = &mut self.backend {
                     backend.prepare(&self.extracted_meshes);
                     window.pre_present_notify();

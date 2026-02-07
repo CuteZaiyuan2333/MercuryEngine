@@ -27,6 +27,8 @@ struct PointLightUniform {
     falloff_exponent: f32,
     _pad2: [f32; 2],
     inv_view_proj: [f32; 16],
+    /// 满足 wgpu uniform 最小 128 字节对齐
+    _pad3: [f32; 4],
 }
 
 #[repr(C)]
@@ -189,7 +191,7 @@ impl LightPass {
         });
         let point_light_uniform_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("point_light_uniform"),
-            size: 112,
+            size: 128,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -279,6 +281,7 @@ impl LightPass {
             falloff_exponent: light.falloff_exponent,
             _pad2: [0.0; 2],
             inv_view_proj: *inv_view_proj,
+            _pad3: [0.0; 4],
         };
         queue.write_buffer(&self.point_light_uniform_buf, 0, bytemuck::bytes_of(&uniform));
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
